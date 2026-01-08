@@ -1,0 +1,111 @@
+{
+    "timestamp": "2025-12-09T15:28:11.750453",
+    "metrics": {
+        "wmape_arima": 6.209,
+        "wmape_sarima": 6.171,
+        "wmape_threshold": "< 20.0",
+        "winner_model": "SARIMA",
+        "winner_params": {
+            "ar.L1": 0.2967658417834318,
+            "ma.L1": -0.9996955377209015,
+            "ar.S.L12": 0.8658430607933957,
+            "sigma2": 260.50372403946693
+        }
+    },
+    "forecast_period": {
+        "start": "2025-09",
+        "end": "2026-08",
+        "horizon_months": 12
+    },
+    "forecast_results": [
+        {
+            "MonthKey": "2025-09",
+            "ForecastMean": 411.4092545606843,
+            "ForecastLowerCI": 344.81247669282925,
+            "ForecastUpperCI": 478.00603242853936
+        },
+        {
+            "MonthKey": "2025-10",
+            "ForecastMean": 403.1468671786997,
+            "ForecastLowerCI": 331.9830270241688,
+            "ForecastUpperCI": 474.31070733323065
+        },
+        {
+            "MonthKey": "2025-11",
+            "ForecastMean": 349.4942691102188,
+            "ForecastLowerCI": 278.19251271827454,
+            "ForecastUpperCI": 420.79602550216305
+        },
+        {
+            "MonthKey": "2025-12",
+            "ForecastMean": 327.1226721832261,
+            "ForecastLowerCI": 259.53100354748835,
+            "ForecastUpperCI": 394.7143408189638
+        },
+        {
+            "MonthKey": "2026-01",
+            "ForecastMean": 300.0722621161219,
+            "ForecastLowerCI": 266.7055070982653,
+            "ForecastUpperCI": 333.43901713397855
+        },
+        {
+            "MonthKey": "2026-02",
+            "ForecastMean": 290.40464820170433,
+            "ForecastLowerCI": 257.0363879530967,
+            "ForecastUpperCI": 323.77290845031195
+        },
+        {
+            "MonthKey": "2026-03",
+            "ForecastMean": 469.80087844214256,
+            "ForecastLowerCI": 436.4321728193383,
+            "ForecastUpperCI": 503.16958406494683
+        },
+        {
+            "MonthKey": "2026-04",
+            "ForecastMean": 469.04055549554374,
+            "ForecastLowerCI": 435.67171601526405,
+            "ForecastUpperCI": 502.40939497582343
+        },
+        {
+            "MonthKey": "2026-05",
+            "ForecastMean": 448.70230190956227,
+            "ForecastLowerCI": 415.33342075404863,
+            "ForecastUpperCI": 482.0711830650759
+        },
+        {
+            "MonthKey": "2026-06",
+            "ForecastMean": 414.1067302479454,
+            "ForecastLowerCI": 380.7378347503698,
+            "ForecastUpperCI": 447.475625745521
+        },
+        {
+            "MonthKey": "2026-07",
+            "ForecastMean": 351.14521460280264,
+            "ForecastLowerCI": 317.7763128726378,
+            "ForecastUpperCI": 384.5141163329675
+        },
+        {
+            "MonthKey": "2026-08",
+            "ForecastMean": 468.77728349351986,
+            "ForecastLowerCI": 435.4083779372244,
+            "ForecastUpperCI": 502.14618904981535
+        }
+    ],
+    "outliers_detected": [
+        {
+            "MonthKey": "2024-07",
+            "NetFlowExternal": -1414.2700000000004,
+            "TreatmentTag": "ABNORMAL_EXTERNAL_FLOW"
+        },
+        {
+            "MonthKey": "2024-08",
+            "NetFlowExternal": 5364.32,
+            "TreatmentTag": "ABNORMAL_EXTERNAL_FLOW"
+        },
+        {
+            "MonthKey": "2025-07",
+            "NetFlowExternal": -1435.58,
+            "TreatmentTag": "ABNORMAL_EXTERNAL_FLOW"
+        }
+    ]
+}
