@@ -280,7 +280,10 @@ class NoiseResult:
     num_outliers: int
     avg_ci_width: float
     historical_std: float
+    historical_values: List[float]
     forecast_values: List[float]
+    forecast_lower: List[float]
+    forecast_upper: List[float]
 
 
 def analyze_noise_level(noise_config: NoiseConfig, seed: int = 42) -> NoiseResult:
@@ -290,7 +293,10 @@ def analyze_noise_level(noise_config: NoiseConfig, seed: int = 42) -> NoiseResul
 
     # Calculate metrics
     forecast_values = [fr.forecast_total for fr in payload.forecast_results]
+    forecast_lower = [fr.lower_ci for fr in payload.forecast_results]
+    forecast_upper = [fr.upper_ci for fr in payload.forecast_results]
     ci_widths = [fr.upper_ci - fr.lower_ci for fr in payload.forecast_results]
+    historical_values = historical_df["necf"].tolist()
 
     return NoiseResult(
         noise_config=noise_config,
@@ -300,7 +306,10 @@ def analyze_noise_level(noise_config: NoiseConfig, seed: int = 42) -> NoiseResul
         num_outliers=len(payload.outliers_detected),
         avg_ci_width=np.mean(ci_widths),
         historical_std=historical_df["necf"].std(),
+        historical_values=historical_values,
         forecast_values=forecast_values,
+        forecast_lower=forecast_lower,
+        forecast_upper=forecast_upper,
     )
 
 
@@ -378,35 +387,64 @@ def plot_wmape_vs_noise(results: Dict[str, List[NoiseResult]], output_path: str)
 
 
 def plot_forecast_comparison(results: Dict[str, List[NoiseResult]], output_path: str) -> None:
-    """Plot forecast trajectories for different noise levels."""
-    fig, ax = plt.subplots(figsize=FIG_SIZE)
-
+    """Plot forecast trajectories for different noise levels with stacked subplots."""
     noise_levels = list(results.keys())
-    colors = COLORS["noise_gradient"][:len(noise_levels)]
+    n_levels = len(noise_levels)
+    colors = COLORS["noise_gradient"][:n_levels]
 
-    # Use first seed result for each noise level
-    for i, (level, color) in enumerate(zip(noise_levels, colors)):
-        if results[level]:
-            forecast = results[level][0].forecast_values
-            months = range(1, len(forecast) + 1)
+    fig, axes = plt.subplots(n_levels, 1, figsize=(14, 3 * n_levels), sharex=True)
 
-            alpha = 1.0 - (i * 0.08)  # Fade with noise
-            linewidth = 2.5 - (i * 0.2)
+    # Handle single subplot case
+    if n_levels == 1:
+        axes = [axes]
 
-            ax.plot(months, forecast, color=color, linewidth=max(1, linewidth),
-                   alpha=max(0.4, alpha), marker="o", markersize=4,
-                   label=f"{level} (WMAPE: {results[level][0].wmape:.1f}%)")
+    for i, (level, color, ax) in enumerate(zip(noise_levels, colors, axes)):
+        if not results[level]:
+            continue
 
-    # Styling
-    ax.set_xlabel("Forecast Month", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Predicted Cash Flow (EUR)", fontsize=12, fontweight="bold")
-    ax.set_title("Forecast Trajectories Under Different Noise Levels",
-                fontsize=14, fontweight="bold", pad=20)
+        # Use first seed result
+        result = results[level][0]
+        historical = result.historical_values
+        forecast = result.forecast_values
+        forecast_lower = result.forecast_lower
+        forecast_upper = result.forecast_upper
 
-    ax.set_xticks(range(1, 13))
-    ax.legend(loc="upper right", fontsize=8, ncol=2)
-    ax.grid(True, alpha=0.3)
-    ax.set_facecolor("#FAFAFA")
+        n_hist = len(historical)
+        n_fore = len(forecast)
+
+        # Create x-axis: historical months (negative) + forecast months (positive)
+        hist_x = list(range(-n_hist + 1, 1))  # ..., -2, -1, 0
+        fore_x = list(range(1, n_fore + 1))   # 1, 2, ..., 12
+
+        # Plot historical data
+        ax.plot(hist_x, historical, color=COLORS["actual"], linewidth=2,
+               marker="o", markersize=4, label="Historical")
+
+        # Plot forecast with confidence interval
+        ax.plot(fore_x, forecast, color=color, linewidth=2.5,
+               marker="s", markersize=5, label=f"Forecast (WMAPE: {result.wmape:.1f}%)")
+        ax.fill_between(fore_x, forecast_lower, forecast_upper,
+                       color=color, alpha=0.2, label="95% CI")
+
+        # Vertical line at forecast start
+        ax.axvline(x=0.5, color="#6C757D", linestyle="--", linewidth=1.5, alpha=0.7)
+
+        # Zero line
+        ax.axhline(y=0, color="#6C757D", linewidth=0.5, alpha=0.5)
+
+        # Styling
+        ax.set_ylabel("EUR", fontsize=10, fontweight="bold")
+        ax.set_title(f"{level}", fontsize=11, fontweight="bold", loc="left")
+        ax.legend(loc="upper right", fontsize=8)
+        ax.grid(True, alpha=0.3)
+        ax.set_facecolor("#FAFAFA")
+
+    # X-axis label on bottom subplot only
+    axes[-1].set_xlabel("Month (negative = historical, positive = forecast)", fontsize=11, fontweight="bold")
+
+    # Main title
+    fig.suptitle("Historical Data + Forecast Trajectories Under Different Noise Levels",
+                fontsize=14, fontweight="bold", y=1.01)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor="white")
