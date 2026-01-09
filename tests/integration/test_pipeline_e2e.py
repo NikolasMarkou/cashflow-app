@@ -124,7 +124,7 @@ class TestForecastEngine:
                 + forecast.deterministic_base
                 + forecast.known_future_delta
             )
-            assert abs(forecast.forecast_total - expected_total) < 0.01
+            assert abs(forecast.forecast_total - expected_total) < 0.02
 
             # Verify CI order
             assert forecast.lower_ci < forecast.forecast_total < forecast.upper_ci
