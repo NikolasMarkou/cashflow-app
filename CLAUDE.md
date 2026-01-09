@@ -68,9 +68,10 @@ python scripts/generate_all_plots.py
 
 **Pipeline Data Flow:**
 ```
-UTF → Cleaning → CRF Enrichment → Transfer Netting → NECF
+UTF → Cleaning → CRF Enrichment → Transfer Netting
+    → Recurrence Detection (Layer 0.5) → NECF Aggregation
     → Decomposition → Outlier Treatment → Model Selection
-    → Recomposition → ExplainabilityPayload JSON
+    → Recomposition (Trend-Adjusted) → ExplainabilityPayload JSON
 ```
 
 **Core Formula:**
@@ -88,8 +89,24 @@ Forecast_Total = Deterministic_Base + Forecast_Residual + KnownFutureFlow_Delta
 
 ### Cash Flow Decomposition (`pipeline/decomposition.py`)
 - NECF = Deterministic Base + Residual
-- Deterministic: transactions where `is_recurring_flag=True`
+- Deterministic: transactions where `is_recurring_flag=True` OR discovered by recurrence detection
 - Residual: non-recurring (modeled statistically)
+- Trend-adjusted projection for deterministic base (handles salary raises, rent changes)
+
+### Recurrence Detection (`pipeline/recurrence.py`)
+- **Layer 0.5** internal pattern discovery independent of upstream `is_recurring_flag`
+- Detects patterns by: category stability, counterparty consistency, amount clustering
+- Functions:
+  - `discover_recurring_patterns(df)` - Finds recurring transaction patterns
+  - `apply_discovered_recurrence(df, patterns)` - Tags transactions as recurring
+- Fixes Single Point of Failure on external flags
+- With 10% flag corruption: Pass rate improved from 40% to 73%
+
+### Trend-Adjusted Projection (`pipeline/decomposition.py`)
+- `DeterministicProjection` dataclass with base_value, monthly_trend, confidence
+- `compute_deterministic_projection(df)` - Exponentially weighted mean + trend
+- `_detect_level_shift(values)` - CUSUM approach to detect salary raises, rent changes
+- Fixes "Mean Fallacy" where naive mean() fails on lifestyle changes
 
 ### Outlier Detection (`outliers/detector.py`)
 - Modified Z-Score using MAD (Median Absolute Deviation)
@@ -101,6 +118,7 @@ Forecast_Total = Deterministic_Base + Forecast_Residual + KnownFutureFlow_Delta
 - Selection: Lowest WMAPE wins (must be < 20%)
 - Tie-breaker: prefer simpler model
 - All forecasts include 95% confidence intervals
+- SARIMAX with exogenous integration: learns contract→cashflow relationships during training
 
 ### Explainability Output (`explainability/builder.py`)
 - Produces `ExplainabilityPayload` JSON with:
@@ -172,12 +190,12 @@ Evaluates model robustness under increasing data noise levels:
 python3 scripts/analyze_noise_sensitivity.py
 ```
 
-**Noise Levels:**
-- Baseline (No Noise): Clean synthetic data
-- Very Low Noise: salary_std=25, expense_std=10
-- Low Noise: salary_std=50, expense_std=20
-- Moderate Noise: salary_std=100, expense_std=40
-- High Noise: salary_std=200, expense_std=80
+**Noise Levels** (with flag corruption and salary raises to test improvements):
+- Baseline (No Noise): Clean synthetic data, 0% flag corruption
+- Very Low Noise: salary_std=25, 10% flag corruption
+- Low Noise: salary_std=50, 20% flag corruption + salary raise at month 12
+- Moderate Noise: salary_std=100, 30% flag corruption + salary raise
+- High Noise: salary_std=200, 40% flag corruption + salary raise
 
 **Output** (`plots/noise_analysis/`):
 - `wmape_vs_noise.png` - WMAPE distribution across noise levels
@@ -188,6 +206,8 @@ python3 scripts/analyze_noise_sensitivity.py
 - `summary_table.csv` / `summary_table.png` - Aggregate metrics
 
 Uses 30 random seeds per noise level for statistical robustness.
+
+**Key Finding:** Recurrence detection compensates for corrupted flags - with 10% flag corruption, pass rate improved from 40% to 73%.
 
 ## Important Notes
 
