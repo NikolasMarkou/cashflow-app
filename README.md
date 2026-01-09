@@ -4,6 +4,8 @@ A production-grade Python package for multi-account cash flow forecasting with l
 
 **Implements SDD v0.05 specification.**
 
+**Compliance: 97.6% (40/41 requirements)** - See [docs/compliance.md](docs/compliance.md)
+
 ## Features
 
 - **Layered Forecasting Architecture**
@@ -247,7 +249,8 @@ src/cashflow/
 │   ├── routes/        # API and page routes
 │   ├── schemas/       # Response models
 │   ├── templates/     # Jinja2 HTML templates
-│   └── static/        # CSS and JavaScript
+│   ├── static/        # CSS and JavaScript
+│   └── README.md      # Web module documentation
 │
 ├── cli.py             # Click CLI entrypoint
 └── utils.py           # Metrics (WMAPE), dates, validation
@@ -395,6 +398,24 @@ Model robustness under synthetic data with increasing noise and flag corruption 
 | High Noise + Raise | 40% | 88.82% | 0% |
 
 **Key Finding:** With 10% flag corruption, the recurrence detection improvement raises pass rate from 40% to 73% - the system performs BETTER with corrupted flags than the old system with perfect flags.
+
+## SDD v0.05 Compliance
+
+| Category | Score |
+|----------|-------|
+| UTF Schema | 100% |
+| CRF Schema | 100% |
+| Data Cleaning | 100% |
+| Transfer Detection | 83% |
+| Decomposition | 100% |
+| Outlier Detection | 100% |
+| Feature Engineering | 100% |
+| Predictive Modeling | 100% |
+| Recomposition | 100% |
+| Explainability | 100% |
+| **Overall** | **97.6%** |
+
+See [docs/compliance.md](docs/compliance.md) for detailed verification.
 
 ## License
 
