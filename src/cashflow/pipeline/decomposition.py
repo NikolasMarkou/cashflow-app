@@ -1,12 +1,41 @@
-"""Cash flow decomposition - SDD Section 10."""
+"""Cash flow decomposition - SDD Section 10.
+
+Enhanced with trend-adjusted projection to fix the "Mean Fallacy" where
+using historical mean fails to capture recent lifestyle changes
+(salary raises, rent changes, etc.).
+"""
 
 from __future__ import annotations
 import pandas as pd
 import numpy as np
 import logging
-from typing import Optional
+from typing import Optional, Tuple
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DeterministicProjection:
+    """Holds deterministic base projection with trend information.
+
+    Instead of a single scalar mean, this captures:
+    - Base value (intercept)
+    - Monthly trend (slope)
+    - Confidence in the projection
+    """
+    base_value: float
+    monthly_trend: float
+    confidence: float
+    method: str
+
+    def project(self, months_ahead: int) -> float:
+        """Project deterministic base for future month."""
+        return self.base_value + (self.monthly_trend * months_ahead)
+
+    def project_series(self, num_months: int) -> list[float]:
+        """Project series of future deterministic values."""
+        return [self.project(i) for i in range(1, num_months + 1)]
 
 
 def decompose_cashflow(
@@ -183,10 +212,13 @@ def get_deterministic_flows(
     """
     df = transactions_df.copy()
 
-    if "is_recurring_flag" not in df.columns:
+    # Use discovered recurrence if available, otherwise fall back to upstream flag
+    recurring_col = "is_recurring_discovered" if "is_recurring_discovered" in df.columns else "is_recurring_flag"
+
+    if recurring_col not in df.columns:
         return pd.DataFrame()
 
-    recurring = df[df["is_recurring_flag"] == True].copy()
+    recurring = df[df[recurring_col] == True].copy()
 
     if len(recurring) == 0:
         return pd.DataFrame()
@@ -209,6 +241,174 @@ def get_deterministic_flows(
     summary["is_stable"] = summary["coefficient_of_variation"] < 0.1  # <10% variation
 
     return summary
+
+
+def compute_deterministic_projection(
+    historical_df: pd.DataFrame,
+    recency_weight: float = 0.7,
+    trend_window: int = 6,
+) -> DeterministicProjection:
+    """Compute trend-adjusted deterministic projection.
+
+    This replaces the naive mean() with a projection that:
+    1. Gives more weight to recent months
+    2. Captures trends (salary raises, rent changes)
+    3. Provides confidence based on stability
+
+    Args:
+        historical_df: DataFrame with month_key and deterministic_base
+        recency_weight: Weight for recent vs older months (0-1)
+        trend_window: Months to use for trend calculation
+
+    Returns:
+        DeterministicProjection with trend-adjusted values
+    """
+    if len(historical_df) == 0:
+        return DeterministicProjection(
+            base_value=0.0,
+            monthly_trend=0.0,
+            confidence=0.0,
+            method="empty",
+        )
+
+    df = historical_df.copy()
+    df = df.sort_values("month_key")
+    values = df["deterministic_base"].values
+
+    n = len(values)
+
+    if n < 3:
+        # Too little data, use simple mean
+        return DeterministicProjection(
+            base_value=float(np.mean(values)),
+            monthly_trend=0.0,
+            confidence=0.5,
+            method="mean_fallback",
+        )
+
+    # Strategy 1: Detect level shifts (structural breaks)
+    # Look for significant jumps in recent data
+    shift_idx, shift_detected = _detect_level_shift(values)
+
+    if shift_detected:
+        # Use only post-shift data
+        post_shift_values = values[shift_idx:]
+        base_value = float(np.mean(post_shift_values))
+
+        # Calculate trend from post-shift period
+        if len(post_shift_values) >= 3:
+            trend = _calculate_trend(post_shift_values)
+        else:
+            trend = 0.0
+
+        return DeterministicProjection(
+            base_value=base_value,
+            monthly_trend=trend,
+            confidence=0.8,
+            method="level_shift_adjusted",
+        )
+
+    # Strategy 2: Exponentially weighted mean with trend
+    # Recent months get more weight
+    weights = np.array([recency_weight ** (n - i - 1) for i in range(n)])
+    weights = weights / weights.sum()
+
+    weighted_mean = float(np.sum(values * weights))
+
+    # Calculate trend from recent window
+    recent_values = values[-min(trend_window, n):]
+    trend = _calculate_trend(recent_values)
+
+    # Confidence based on stability
+    cv = abs(np.std(recent_values) / np.mean(recent_values)) if np.mean(recent_values) != 0 else 1.0
+    confidence = max(0.0, min(1.0, 1.0 - cv))
+
+    # Adjust base value to be "as of last month" for projection
+    # Base = last_value OR weighted_mean if last value is anomalous
+    last_value = values[-1]
+    if abs(last_value - weighted_mean) > 2 * np.std(values):
+        # Last value is anomalous, use weighted mean
+        base_value = weighted_mean
+    else:
+        base_value = last_value
+
+    return DeterministicProjection(
+        base_value=base_value,
+        monthly_trend=trend,
+        confidence=confidence,
+        method="exponential_weighted_trend",
+    )
+
+
+def _detect_level_shift(values: np.ndarray, threshold: float = 2.0) -> Tuple[int, bool]:
+    """Detect structural break (level shift) in time series.
+
+    Uses cumulative sum (CUSUM) approach to find sudden jumps.
+
+    Args:
+        values: Time series values
+        threshold: Number of standard deviations for shift detection
+
+    Returns:
+        Tuple of (shift_index, shift_detected)
+    """
+    n = len(values)
+    if n < 6:
+        return 0, False
+
+    # Calculate rolling mean and std
+    window = min(6, n // 2)
+    diffs = np.diff(values)
+
+    # Look for jumps larger than threshold * std
+    std_diff = np.std(diffs)
+    if std_diff == 0:
+        return 0, False
+
+    # Find significant jumps
+    z_scores = np.abs(diffs) / std_diff
+    shift_candidates = np.where(z_scores > threshold)[0]
+
+    if len(shift_candidates) == 0:
+        return 0, False
+
+    # Take the most recent significant shift
+    shift_idx = shift_candidates[-1] + 1
+
+    # Only use if shift is in recent half of data
+    if shift_idx >= n // 2:
+        return shift_idx, True
+
+    return 0, False
+
+
+def _calculate_trend(values: np.ndarray) -> float:
+    """Calculate linear trend (slope) from values.
+
+    Args:
+        values: Time series values
+
+    Returns:
+        Monthly trend (positive = increasing)
+    """
+    n = len(values)
+    if n < 2:
+        return 0.0
+
+    # Simple linear regression
+    x = np.arange(n)
+    x_mean = x.mean()
+    y_mean = values.mean()
+
+    numerator = np.sum((x - x_mean) * (values - y_mean))
+    denominator = np.sum((x - x_mean) ** 2)
+
+    if denominator == 0:
+        return 0.0
+
+    slope = numerator / denominator
+
+    return float(slope)
 
 
 def compute_known_future_delta(

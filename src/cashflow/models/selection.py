@@ -56,6 +56,9 @@ class ModelSelector:
         train_series: pd.Series,
         test_series: pd.Series,
         forecast_steps: int = 12,
+        train_exog: Optional[pd.DataFrame] = None,
+        test_exog: Optional[pd.DataFrame] = None,
+        future_exog: Optional[pd.DataFrame] = None,
     ) -> ModelResult:
         """Evaluate a single model.
 
@@ -64,16 +67,28 @@ class ModelSelector:
             train_series: Training data
             test_series: Test data for WMAPE calculation
             forecast_steps: Number of steps for final forecast
+            train_exog: Optional exogenous variables for training (SARIMAX)
+            test_exog: Optional exogenous variables for test period (SARIMAX)
+            future_exog: Optional exogenous variables for forecast period (SARIMAX)
 
         Returns:
             ModelResult with evaluation metrics
         """
         try:
+            # Check if model supports exogenous variables
+            supports_exog = hasattr(model, 'fit') and 'exog' in model.fit.__code__.co_varnames
+
             # Fit on training data
-            model.fit(train_series)
+            if supports_exog and train_exog is not None:
+                model.fit(train_series, exog=train_exog)
+            else:
+                model.fit(train_series)
 
             # Predict on test period
-            test_forecast = model.predict(len(test_series))
+            if supports_exog and test_exog is not None:
+                test_forecast = model.predict(len(test_series), exog_future=test_exog)
+            else:
+                test_forecast = model.predict(len(test_series))
 
             # Calculate WMAPE
             wmape = calculate_wmape(test_series.values, test_forecast.forecast_mean)
@@ -81,8 +96,15 @@ class ModelSelector:
             # Generate full forecast
             # Refit on full data for production forecast
             full_series = pd.concat([train_series, test_series])
-            model.fit(full_series)
-            final_forecast = model.predict(forecast_steps)
+
+            if supports_exog and train_exog is not None and test_exog is not None:
+                full_exog = pd.concat([train_exog, test_exog])
+                model.fit(full_series, exog=full_exog)
+                final_forecast = model.predict(forecast_steps, exog_future=future_exog)
+            else:
+                model.fit(full_series)
+                final_forecast = model.predict(forecast_steps)
+
             final_forecast.wmape = wmape
 
             result = ModelResult(

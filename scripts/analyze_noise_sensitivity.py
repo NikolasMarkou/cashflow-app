@@ -42,15 +42,18 @@ class NoiseConfig:
     outlier_magnitude: float   # Multiplier for outlier amounts
     random_expense_prob: float # Probability of random unexpected expense
     random_expense_max: float  # Max amount for random expenses
+    flag_corruption_rate: float = 0.0  # Probability of wrong is_recurring_flag
+    salary_raise_month: int = 0  # Month to apply salary raise (0 = no raise)
 
 
 # Define noise levels from clean to very noisy
+# Added flag_corruption_rate and salary_raise to test improvements
 NOISE_LEVELS = [
-    NoiseConfig("Baseline (No Noise)", 0, 0, 0, 1.0, 0, 0),
-    NoiseConfig("Very Low Noise", 25, 10, 20, 1.0, 0.05, 200),
-    NoiseConfig("Low Noise", 50, 20, 40, 1.2, 0.10, 400),
-    NoiseConfig("Moderate Noise", 100, 40, 60, 1.5, 0.15, 600),
-    NoiseConfig("High Noise", 200, 80, 100, 2.0, 0.20, 1000),
+    NoiseConfig("Baseline (No Noise)", 0, 0, 0, 1.0, 0, 0, 0.0, 0),
+    NoiseConfig("Very Low Noise", 25, 10, 20, 1.0, 0.05, 200, 0.1, 0),  # 10% flag corruption
+    NoiseConfig("Low Noise", 50, 20, 40, 1.2, 0.10, 400, 0.2, 12),  # 20% flag corruption + raise at month 12
+    NoiseConfig("Moderate Noise", 100, 40, 60, 1.5, 0.15, 600, 0.3, 12),  # 30% flag corruption + raise
+    NoiseConfig("High Noise", 200, 80, 100, 2.0, 0.20, 1000, 0.4, 12),  # 40% flag corruption + raise
 ]
 
 
@@ -75,17 +78,33 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
     base_utilities = 120
     base_groceries = 80
 
+    # Track month number for salary raise
+    month_number = 0
+
     # Generate 24 months of data
     for year in [2024, 2025]:
         for month in range(1, 13):
             if year == 2025 and month > 12:
                 break
 
+            month_number += 1
             month_start = datetime(year, month, 1)
+
+            # Apply salary raise if configured
+            if noise_config.salary_raise_month > 0 and month_number >= noise_config.salary_raise_month:
+                current_base_salary = base_salary + 500  # €500 raise
+            else:
+                current_base_salary = base_salary
 
             # Salary (recurring income) - with noise
             salary_noise = np.random.normal(0, noise_config.salary_std) if noise_config.salary_std > 0 else 0
-            salary = base_salary + salary_noise
+            salary = current_base_salary + salary_noise
+
+            # Corrupt flag with configured probability
+            salary_flag = True
+            if np.random.random() < noise_config.flag_corruption_rate:
+                salary_flag = False  # Wrong flag!
+
             transactions.append({
                 "tx_id": f"TX{tx_id:06d}",
                 "customer_id": "CUST001",
@@ -96,12 +115,16 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
                 "direction": "CREDIT",
                 "category": "SALARY",
                 "description_raw": f"SALARY {year}-{month:02d}",
-                "is_recurring_flag": True,
+                "is_recurring_flag": salary_flag,
                 "is_variable_amount": False,
             })
             tx_id += 1
 
             # Rent (recurring expense) - fixed
+            rent_flag = True
+            if np.random.random() < noise_config.flag_corruption_rate:
+                rent_flag = False
+
             transactions.append({
                 "tx_id": f"TX{tx_id:06d}",
                 "customer_id": "CUST001",
@@ -112,7 +135,7 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
                 "direction": "DEBIT",
                 "category": "RENT_MORTGAGE",
                 "description_raw": f"RENT {year}-{month:02d}",
-                "is_recurring_flag": True,
+                "is_recurring_flag": rent_flag,
                 "is_variable_amount": False,
             })
             tx_id += 1
@@ -121,6 +144,11 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
             winter_factor = 1.5 if month in [11, 12, 1, 2] else 1.0
             utility_noise = np.random.normal(0, noise_config.expense_std) if noise_config.expense_std > 0 else 0
             utilities = -(base_utilities * winter_factor + utility_noise)
+
+            utility_flag = True
+            if np.random.random() < noise_config.flag_corruption_rate:
+                utility_flag = False
+
             transactions.append({
                 "tx_id": f"TX{tx_id:06d}",
                 "customer_id": "CUST001",
@@ -131,7 +159,7 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
                 "direction": "DEBIT",
                 "category": "UTILITIES",
                 "description_raw": f"UTILITIES {year}-{month:02d}",
-                "is_recurring_flag": True,
+                "is_recurring_flag": utility_flag,
                 "is_variable_amount": True,
             })
             tx_id += 1

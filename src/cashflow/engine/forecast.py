@@ -17,6 +17,10 @@ from cashflow.pipeline import (
     net_transfers,
     aggregate_monthly,
     decompose_cashflow,
+    compute_deterministic_projection,
+    discover_recurring_patterns,
+    apply_discovered_recurrence,
+    get_recurrence_summary,
 )
 from cashflow.outliers import detect_outliers
 from cashflow.outliers.treatment import apply_residual_treatment
@@ -56,6 +60,9 @@ class ForecastEngine:
         self._decomposition_summary: Optional[dict] = None
         self._outlier_records: list[dict] = []
         self._model_selector: Optional[ModelSelector] = None
+        self._recurrence_summary: Optional[dict] = None
+        self._deterministic_projection = None
+        self._exog_matrix: Optional[pd.DataFrame] = None
 
     def run(
         self,
@@ -163,8 +170,19 @@ class ForecastEngine:
     def _train_and_select_model(
         self,
         df: pd.DataFrame,
+        exog: Optional[pd.DataFrame] = None,
     ) -> tuple:
-        """Train models and select the best one."""
+        """Train models and select the best one.
+
+        Enhanced with exogenous variable support for SARIMAX.
+
+        Args:
+            df: Historical decomposed data
+            exog: Optional exogenous variables for SARIMAX
+
+        Returns:
+            Tuple of (forecast_output, model_summary)
+        """
         # Prepare residual series for modeling
         residual_col = "residual_clean" if "residual_clean" in df.columns else "residual"
 
@@ -174,6 +192,28 @@ class ForecastEngine:
         # Split train/test
         train, test = split_train_test(series, self.config.test_size)
 
+        # Split exog if available
+        train_exog = None
+        test_exog = None
+        future_exog = None
+
+        if exog is not None:
+            # Align exog with series
+            exog_aligned = exog.reindex(series.index).fillna(0.0)
+            train_exog = exog_aligned.loc[train.index]
+            test_exog = exog_aligned.loc[test.index]
+
+            # Build future exog (zeros for now, could be enhanced with CRF)
+            future_index = pd.period_range(
+                start=series.index[-1] + 1,
+                periods=self.config.forecast_horizon,
+                freq="M"
+            )
+            future_exog = pd.DataFrame(
+                {"known_delta": 0.0},
+                index=future_index
+            )
+
         # Initialize model selector
         self._model_selector = ModelSelector(
             wmape_threshold=self.config.wmape_threshold,
@@ -181,25 +221,39 @@ class ForecastEngine:
         )
 
         # Evaluate models
-        models_to_eval = []
-
         if "ets" in self.config.models_to_evaluate:
-            models_to_eval.append(ETSModel(trend="add", seasonal="add"))
-
-        if "sarima" in self.config.models_to_evaluate:
-            models_to_eval.append(
-                SARIMAModel(
-                    order=self.config.arima_order,
-                    seasonal_order=self.config.seasonal_order,
-                )
-            )
-
-        for model in models_to_eval:
             self._model_selector.evaluate_model(
-                model=model,
+                model=ETSModel(trend="add", seasonal="add"),
                 train_series=train,
                 test_series=test,
                 forecast_steps=self.config.forecast_horizon,
+            )
+
+        if "sarima" in self.config.models_to_evaluate:
+            self._model_selector.evaluate_model(
+                model=SARIMAModel(
+                    order=self.config.arima_order,
+                    seasonal_order=self.config.seasonal_order,
+                ),
+                train_series=train,
+                test_series=test,
+                forecast_steps=self.config.forecast_horizon,
+            )
+
+        # Evaluate SARIMAX with exogenous variables if available
+        if "sarimax" in self.config.models_to_evaluate and exog is not None:
+            from cashflow.models.sarima import SARIMAXModel
+            self._model_selector.evaluate_model(
+                model=SARIMAXModel(
+                    order=self.config.arima_order,
+                    seasonal_order=self.config.seasonal_order,
+                ),
+                train_series=train,
+                test_series=test,
+                forecast_steps=self.config.forecast_horizon,
+                train_exog=train_exog,
+                test_exog=test_exog,
+                future_exog=future_exog,
             )
 
         winner = self._model_selector.select_winner()
@@ -216,9 +270,20 @@ class ForecastEngine:
         """Recompose forecast per SDD Section 14.1.
 
         Forecast Total = Forecast Residual + Deterministic Base + Known Future Adjustments
+
+        Enhanced with trend-adjusted projection to fix the "Mean Fallacy":
+        - Uses exponentially weighted recent values
+        - Detects level shifts (salary raises, rent changes)
+        - Projects forward with trend
         """
-        # Get average deterministic base from historical data
-        avg_deterministic = historical_df["deterministic_base"].mean()
+        # Compute trend-adjusted deterministic projection (fixes Mean Fallacy)
+        self._deterministic_projection = compute_deterministic_projection(historical_df)
+
+        logger.info(
+            f"Deterministic projection: base={self._deterministic_projection.base_value:.2f}, "
+            f"trend={self._deterministic_projection.monthly_trend:.2f}/month, "
+            f"method={self._deterministic_projection.method}"
+        )
 
         # Compute known future deltas from CRF
         from cashflow.pipeline.decomposition import compute_known_future_delta
@@ -238,19 +303,22 @@ class ForecastEngine:
             residual_forecast = forecast_output.forecast_mean[i]
             known_delta = future_deltas.get(month_key, 0.0)
 
-            # Recomposition formula
-            total = residual_forecast + avg_deterministic + known_delta
+            # Project deterministic base forward with trend (months_ahead = i + 1)
+            projected_deterministic = self._deterministic_projection.project(i + 1)
+
+            # Recomposition formula with trend-adjusted projection
+            total = residual_forecast + projected_deterministic + known_delta
 
             # Adjust confidence intervals similarly
-            lower = forecast_output.forecast_lower[i] + avg_deterministic + known_delta
-            upper = forecast_output.forecast_upper[i] + avg_deterministic + known_delta
+            lower = forecast_output.forecast_lower[i] + projected_deterministic + known_delta
+            upper = forecast_output.forecast_upper[i] + projected_deterministic + known_delta
 
             results.append(
                 ForecastResult(
                     month_key=month_key,
                     forecast_total=round(total, 2),
                     forecast_residual=round(residual_forecast, 2),
-                    deterministic_base=round(avg_deterministic, 2),
+                    deterministic_base=round(projected_deterministic, 2),
                     known_future_delta=round(known_delta, 2),
                     lower_ci=round(lower, 2),
                     upper_ci=round(upper, 2),
@@ -324,7 +392,13 @@ class ForecastEngine:
         utf_df: pd.DataFrame,
         crf_df: Optional[pd.DataFrame] = None,
     ) -> ExplainabilityPayload:
-        """Run forecast from DataFrames directly (for testing/API use)."""
+        """Run forecast from DataFrames directly (for testing/API use).
+
+        Enhanced pipeline with:
+        - Layer 0.5: Internal recurrence detection
+        - Trend-adjusted deterministic projection
+        - Exogenous integration for SARIMAX
+        """
         logger.info("Running forecast from DataFrames")
 
         # Clean UTF
@@ -338,10 +412,19 @@ class ForecastEngine:
         utf_df = detect_transfers(utf_df, self.config.transfer_date_tolerance_days)
         external_df, self._transfer_summary = net_transfers(utf_df)
 
+        # Layer 0.5: Internal recurrence detection (fixes SPOF on is_recurring_flag)
+        patterns_df = discover_recurring_patterns(external_df)
+        if len(patterns_df) > 0:
+            external_df = apply_discovered_recurrence(external_df, patterns_df)
+            self._recurrence_summary = get_recurrence_summary(external_df)
+            logger.info(f"Recurrence discovery: {self._recurrence_summary}")
+        else:
+            self._recurrence_summary = {"newly_discovered": 0}
+
         # Monthly aggregation
         monthly_df = aggregate_monthly(external_df)
 
-        # Decomposition
+        # Decomposition (now uses discovered recurrence)
         decomposed_df = decompose_cashflow(monthly_df, external_df)
 
         # Outlier treatment
@@ -354,11 +437,67 @@ class ForecastEngine:
 
         self._record_outliers(treated_df)
 
-        # Model selection
-        forecast_output, model_summary = self._train_and_select_model(treated_df)
+        # Build exogenous matrix for SARIMAX (if CRF available)
+        self._exog_matrix = self._build_exog_matrix(treated_df, crf_df)
 
-        # Recomposition
+        # Model selection (with exogenous integration)
+        forecast_output, model_summary = self._train_and_select_model(
+            treated_df,
+            exog=self._exog_matrix,
+        )
+
+        # Recomposition (with trend-adjusted projection)
         forecast_results = self._recompose_forecast(forecast_output, treated_df, crf_df)
 
         # Explainability
         return self._generate_explainability(forecast_results, treated_df, model_summary)
+
+    def _build_exog_matrix(
+        self,
+        historical_df: pd.DataFrame,
+        crf_df: Optional[pd.DataFrame] = None,
+    ) -> Optional[pd.DataFrame]:
+        """Build exogenous variable matrix for SARIMAX.
+
+        This implements proper exogenous integration so SARIMAX can learn
+        the relationship between contract events and cash flow jumps.
+
+        Args:
+            historical_df: Historical decomposed data
+            crf_df: Optional CRF data with contract information
+
+        Returns:
+            DataFrame with exogenous variables indexed by period
+        """
+        if crf_df is None or len(crf_df) == 0:
+            return None
+
+        from cashflow.pipeline.decomposition import compute_known_future_delta
+
+        # Get month range from historical data
+        months = historical_df["month_key"].unique()
+        if len(months) < 2:
+            return None
+
+        start_month = min(months)
+        end_month = max(months)
+
+        # Compute known deltas for historical period
+        delta_df = compute_known_future_delta(crf_df, start_month, end_month)
+
+        if len(delta_df) == 0:
+            return None
+
+        # Create exogenous matrix
+        exog = pd.DataFrame(index=pd.PeriodIndex(months, freq="M"))
+        exog["known_delta"] = 0.0
+
+        # Fill in known deltas
+        for _, row in delta_df.iterrows():
+            period = pd.Period(row["month_key"], freq="M")
+            if period in exog.index:
+                exog.loc[period, "known_delta"] = row["delta_value"]
+
+        logger.info(f"Built exogenous matrix with {(exog['known_delta'] != 0).sum()} non-zero entries")
+
+        return exog
