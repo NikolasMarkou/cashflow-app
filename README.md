@@ -218,6 +218,31 @@ for forecast in result.forecast_results:
     print(f"{forecast.month_key}: {forecast.forecast_total:.2f}")
 ```
 
+## Visualization
+
+Generate plots for analysis and presentation:
+
+```bash
+# Generate all standard plots (uses real UTF data)
+python3 scripts/generate_all_plots.py
+
+# Run noise sensitivity analysis (uses synthetic data)
+python3 scripts/analyze_noise_sensitivity.py
+```
+
+**Standard Plots** (`plots/`):
+- Forecast time series with confidence intervals
+- Forecast component breakdown
+- Model comparison charts
+- Cash flow decomposition
+- Outlier analysis
+
+**Noise Sensitivity Analysis** (`plots/noise_analysis/`):
+- Evaluates model robustness under 5 noise levels
+- Uses 30 random seeds per level for statistical significance
+- Generates WMAPE distributions, forecast trajectories, CI width comparisons
+- Outputs summary table with pass rates and metrics
+
 ## Testing
 
 ```bash
@@ -281,6 +306,18 @@ On the PoC dataset (411 transactions, 24 months):
 | Threshold | 20.0% |
 | Outliers Detected | 3 |
 | Transfers Netted | 24 |
+
+### Noise Sensitivity Results
+
+Model robustness under synthetic data with increasing noise (30 seeds per level):
+
+| Noise Level | WMAPE Mean | WMAPE Std | Pass Rate |
+|-------------|------------|-----------|-----------|
+| Baseline (No Noise) | 18.23% | ±6.67% | 63% |
+| Very Low Noise | 21.70% | ±8.33% | 40% |
+| Low Noise | 24.01% | ±11.26% | 37% |
+| Moderate Noise | 29.46% | ±10.82% | 17% |
+| High Noise | 31.97% | ±12.98% | 20% |
 
 ## License
 

@@ -158,10 +158,36 @@ Run specific test: `pytest tests/test_engine.py -v`
 ## Visualization Scripts
 
 Located in `scripts/`, generate plots to `plots/`:
-- `visualize_forecast.py` - Time series, components, model comparison
-- `visualize_scenarios.py` - Multi-seed scenarios, WMAPE distribution
+- `visualize_forecast.py` - Time series, components, model comparison (uses real UTF data)
+- `visualize_scenarios.py` - Confidence interval fan chart, model performance
 - `visualize_decomposition.py` - Decomposition panels, outlier analysis
 - `generate_all_plots.py` - Run all visualizations
+- `analyze_noise_sensitivity.py` - Noise sensitivity analysis with synthetic data
+
+### Noise Sensitivity Analysis
+
+Evaluates model robustness under increasing data noise levels:
+
+```bash
+python3 scripts/analyze_noise_sensitivity.py
+```
+
+**Noise Levels:**
+- Baseline (No Noise): Clean synthetic data
+- Very Low Noise: salary_std=25, expense_std=10
+- Low Noise: salary_std=50, expense_std=20
+- Moderate Noise: salary_std=100, expense_std=40
+- High Noise: salary_std=200, expense_std=80
+
+**Output** (`plots/noise_analysis/`):
+- `wmape_vs_noise.png` - WMAPE distribution across noise levels
+- `forecast_trajectories.png` - Stacked subplots with historical + forecast per noise level
+- `ci_width_vs_noise.png` - Confidence interval width comparison
+- `outlier_detection.png` - Outlier counts by noise level
+- `threshold_pass_rate.png` - Pass rate (WMAPE < 20%) by noise level
+- `summary_table.csv` / `summary_table.png` - Aggregate metrics
+
+Uses 30 random seeds per noise level for statistical robustness.
 
 ## Important Notes
 
