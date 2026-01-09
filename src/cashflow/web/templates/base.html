@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Cash Flow Forecast{% endblock %}</title>
+
+    <!-- Plotly.js CDN -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+
+    <!-- Custom styles -->
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>Cash Flow Forecasting Engine</h1>
+            <p class="subtitle">SDD v0.05 - Production-grade forecasting with 95% confidence intervals</p>
+        </div>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <p>WMAPE Threshold: &lt; 20% | Layered Architecture: Transfer Netting &rarr; Recurrence Detection &rarr; Statistical Models &rarr; Recomposition</p>
+    </footer>
+
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/form.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <!-- Configuration Form -->
+    <section class="config-section">
+        <h2>Forecast Configuration</h2>
+        <form id="forecast-form" enctype="multipart/form-data">
+            <!-- File Upload -->
+            <div class="form-group file-upload">
+                <label for="file">UTF CSV File</label>
+                <input type="file" id="file" name="file" accept=".csv" required>
+                <small>Upload a Unified Transaction Feed CSV file</small>
+            </div>
+
+            <div class="form-row">
+                <!-- Forecast Horizon -->
+                <div class="form-group">
+                    <label for="forecast_horizon">Forecast Horizon (months)</label>
+                    <div class="slider-container">
+                        <input type="range" id="forecast_horizon" name="forecast_horizon"
+                               min="1" max="24" value="12">
+                        <span id="horizon-value" class="slider-value">12</span>
+                    </div>
+                </div>
+
+                <!-- WMAPE Threshold -->
+                <div class="form-group">
+                    <label for="wmape_threshold">WMAPE Threshold (%)</label>
+                    <input type="number" id="wmape_threshold" name="wmape_threshold"
+                           value="20" min="1" max="100" step="0.1">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <!-- Outlier Method -->
+                <div class="form-group">
+                    <label for="outlier_method">Outlier Detection Method</label>
+                    <select id="outlier_method" name="outlier_method">
+                        {% for method in outlier_methods %}
+                        <option value="{{ method.value }}"
+                                {% if method.value == 'modified_zscore' %}selected{% endif %}>
+                            {{ method.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Outlier Threshold -->
+                <div class="form-group">
+                    <label for="outlier_threshold">Outlier Threshold</label>
+                    <input type="number" id="outlier_threshold" name="outlier_threshold"
+                           value="3.5" min="0.1" max="10" step="0.1">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <!-- Outlier Treatment -->
+                <div class="form-group">
+                    <label for="outlier_treatment">Outlier Treatment</label>
+                    <select id="outlier_treatment" name="outlier_treatment">
+                        {% for treatment in outlier_treatments %}
+                        <option value="{{ treatment.value }}"
+                                {% if treatment.value == 'median' %}selected{% endif %}>
+                            {{ treatment.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Confidence Level -->
+                <div class="form-group">
+                    <label for="confidence_level">Confidence Level</label>
+                    <select id="confidence_level" name="confidence_level">
+                        {% for level in confidence_levels %}
+                        <option value="{{ level.value }}"
+                                {% if level.value == '0.95' %}selected{% endif %}>
+                            {{ level.label }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Models to Evaluate (checkboxes) -->
+            <div class="form-group models-group">
+                <label>Models to Evaluate</label>
+                <div class="checkbox-group">
+                    {% for model in models %}
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="models_to_evaluate"
+                               value="{{ model.value }}"
+                               {% if model.default %}checked{% endif %}>
+                        <span class="checkmark"></span>
+                        {{ model.label }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <button type="submit" id="submit-btn" class="submit-btn">
+                <span class="btn-text">Run Forecast</span>
+                <span class="btn-loading hidden">Running...</span>
+            </button>
+        </form>
+
+        <div id="error-message" class="error-banner hidden"></div>
+    </section>
+
+    <!-- Loading Indicator -->
+    <div id="loading" class="loading-section hidden">
+        <div class="spinner"></div>
+        <p>Running forecast pipeline...</p>
+        <small>This may take a few moments depending on data size</small>
+    </div>
+
+    <!-- Results Section -->
+    <section id="results-section" class="results-section hidden">
+        <!-- Metrics Dashboard -->
+        <div class="metrics-dashboard">
+            <h2>Forecast Summary</h2>
+            <div class="metrics-grid">
+                <div class="metric-card" id="metric-wmape">
+                    <span class="metric-label">WMAPE</span>
+                    <span class="metric-value">--</span>
+                    <span class="metric-desc">Weighted Mean Absolute Percentage Error</span>
+                </div>
+                <div class="metric-card" id="metric-model">
+                    <span class="metric-label">Model Selected</span>
+                    <span class="metric-value">--</span>
+                    <span class="metric-desc">Best performing model</span>
+                </div>
+                <div class="metric-card" id="metric-threshold">
+                    <span class="metric-label">Meets Threshold</span>
+                    <span class="metric-value">--</span>
+                    <span class="metric-desc">WMAPE &lt; 20%</span>
+                </div>
+                <div class="metric-card" id="metric-confidence">
+                    <span class="metric-label">Confidence Level</span>
+                    <span class="metric-value">--</span>
+                    <span class="metric-desc">Based on data quality</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Container -->
+        <div class="charts-container">
+            <!-- Historical + Forecast Time Series -->
+            <div class="chart-card full-width">
+                <h3>Historical + Forecast Time Series</h3>
+                <div id="chart-timeseries" class="chart-container"></div>
+            </div>
+
+            <!-- Model Comparison -->
+            <div class="chart-card half-width">
+                <h3>Model Comparison (WMAPE)</h3>
+                <div id="chart-model-comparison" class="chart-container"></div>
+            </div>
+
+            <!-- Component Breakdown -->
+            <div class="chart-card half-width">
+                <h3>Forecast Component Breakdown</h3>
+                <div id="chart-components" class="chart-container"></div>
+            </div>
+
+            <!-- Outlier Analysis -->
+            <div class="chart-card half-width">
+                <h3>Outlier Analysis</h3>
+                <div id="chart-outliers" class="chart-container"></div>
+            </div>
+
+            <!-- Statistics Summary -->
+            <div class="chart-card half-width">
+                <h3>Statistics Summary</h3>
+                <div id="stats-summary" class="stats-container">
+                    <table id="stats-table">
+                        <thead>
+                            <tr>
+                                <th>Metric</th>
+                                <th>Value</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stats-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

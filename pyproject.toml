@@ -45,9 +45,16 @@ viz = [
     "matplotlib>=3.5.0",
     "seaborn>=0.12.0",
 ]
+web = [
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "python-multipart>=0.0.6",
+    "jinja2>=3.1.0",
+]
 
 [project.scripts]
 cashflow = "cashflow.cli:cli"
+cashflow-web = "cashflow.web.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cashflow"]
