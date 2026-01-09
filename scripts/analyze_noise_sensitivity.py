@@ -52,8 +52,6 @@ NOISE_LEVELS = [
     NoiseConfig("Moderate Noise", 100, 40, 60, 1.5, 0.15, 600),
     NoiseConfig("High Noise", 200, 80, 100, 2.0, 0.20, 1000),
     NoiseConfig("Very High Noise", 400, 150, 150, 3.0, 0.30, 1500),
-    NoiseConfig("Extreme Noise", 600, 250, 200, 4.0, 0.40, 2500),
-    NoiseConfig("Chaos", 1000, 400, 300, 5.0, 0.50, 4000),
 ]
 
 
@@ -310,7 +308,8 @@ def analyze_noise_level(noise_config: NoiseConfig, seed: int = 42) -> NoiseResul
 def run_noise_analysis(seeds: List[int] = None) -> Dict[str, List[NoiseResult]]:
     """Run analysis across all noise levels with multiple seeds."""
     if seeds is None:
-        seeds = [42, 123, 456, 789, 2024]
+        seeds = [42, 123, 456, 789, 2024, 1337, 9999, 5555, 7777, 3141,
+                 1111, 2222, 3333, 4444, 6666, 8888, 1234, 5678, 9012, 3456]
 
     results = {}
 
@@ -361,7 +360,7 @@ def plot_wmape_vs_noise(results: Dict[str, List[NoiseResult]], output_path: str)
     # Styling
     ax.set_xlabel("Noise Level", fontsize=12, fontweight="bold")
     ax.set_ylabel("WMAPE (%)", fontsize=12, fontweight="bold")
-    ax.set_title("Model Accuracy Degradation Under Increasing Noise\n(Mean ± Std across 5 random seeds)",
+    ax.set_title("Model Accuracy Degradation Under Increasing Noise\n(Mean ± Std across 20 random seeds)",
                 fontsize=14, fontweight="bold", pad=20)
 
     ax.set_xticks(x)
@@ -499,7 +498,7 @@ def plot_model_selection_distribution(results: Dict[str, List[NoiseResult]], out
                    str(int(bar.get_height())), ha="center", va="bottom", fontsize=10)
 
     ax.set_xlabel("Noise Level", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Number of Wins (out of 5 seeds)", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Number of Wins (out of 20 seeds)", fontsize=12, fontweight="bold")
     ax.set_title("Model Selection Under Different Noise Conditions",
                 fontsize=14, fontweight="bold", pad=20)
 
@@ -590,7 +589,7 @@ def plot_threshold_pass_rate(results: Dict[str, List[NoiseResult]], output_path:
 
     ax.set_xlabel("Noise Level", fontsize=12, fontweight="bold")
     ax.set_ylabel("Pass Rate (%)", fontsize=12, fontweight="bold")
-    ax.set_title("Percentage of Runs Meeting WMAPE < 20% Threshold\n(5 random seeds per noise level)",
+    ax.set_title("Percentage of Runs Meeting WMAPE < 20% Threshold\n(20 random seeds per noise level)",
                 fontsize=14, fontweight="bold", pad=20)
 
     ax.set_xticks(x)
@@ -678,7 +677,7 @@ def main():
     print("NOISE SENSITIVITY ANALYSIS")
     print("=" * 60)
 
-    print(f"\nAnalyzing {len(NOISE_LEVELS)} noise levels with 5 random seeds each...")
+    print(f"\nAnalyzing {len(NOISE_LEVELS)} noise levels with 20 random seeds each...")
     results = run_noise_analysis()
 
     print("\nGenerating plots...")
