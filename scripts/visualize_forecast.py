@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
-from datetime import datetime
 from typing import Optional
 
 from cashflow.engine import ForecastEngine, ForecastConfig
@@ -37,160 +36,43 @@ FIG_SIZE = (14, 7)
 FIG_SIZE_WIDE = (16, 6)
 DPI = 150
 
+# Default UTF data path
+DEFAULT_UTF_PATH = Path(__file__).parent.parent / "docs" / "Scripts" / "data" / "PoC_UTF_Dataset.csv"
 
-def generate_synthetic_data(seed: int = 42) -> pd.DataFrame:
-    """Generate synthetic UTF transaction data with controlled patterns."""
-    np.random.seed(seed)
 
-    transactions = []
-    tx_id = 1
+def load_utf_data(utf_path: Optional[Path] = None) -> pd.DataFrame:
+    """Load real UTF transaction data from CSV file.
 
-    # Generate 24 months of data
-    for year in [2024, 2025]:
-        for month in range(1, 13):
-            if year == 2025 and month > 12:
-                break
+    Args:
+        utf_path: Path to UTF CSV file. Defaults to PoC_UTF_Dataset.csv.
 
-            month_start = datetime(year, month, 1)
+    Returns:
+        DataFrame with standardized column names for pipeline.
+    """
+    if utf_path is None:
+        utf_path = DEFAULT_UTF_PATH
 
-            # Salary (recurring income) - 1st of month
-            salary = 3000 + np.random.normal(0, 50)
-            transactions.append({
-                "tx_id": f"TX{tx_id:06d}",
-                "customer_id": "CUST001",
-                "account_id": "MAIN_CHECKING",
-                "tx_date": month_start,
-                "amount": salary,
-                "currency": "EUR",
-                "direction": "CREDIT",
-                "category": "SALARY",
-                "description_raw": f"SALARY {year}-{month:02d}",
-                "is_recurring_flag": True,
-                "is_variable_amount": False,
-            })
-            tx_id += 1
+    df = pd.read_csv(utf_path)
 
-            # Rent (recurring expense) - 1st of month
-            transactions.append({
-                "tx_id": f"TX{tx_id:06d}",
-                "customer_id": "CUST001",
-                "account_id": "MAIN_CHECKING",
-                "tx_date": month_start,
-                "amount": -1200,
-                "currency": "EUR",
-                "direction": "DEBIT",
-                "category": "RENT_MORTGAGE",
-                "description_raw": f"RENT {year}-{month:02d}",
-                "is_recurring_flag": True,
-                "is_variable_amount": False,
-            })
-            tx_id += 1
+    # Map columns to pipeline expected names
+    column_mapping = {
+        "TransactionID": "tx_id",
+        "TransactionDate": "tx_date",
+        "AccountID": "account_id",
+        "Amount": "amount",
+        "CurrencyCode": "currency",
+        "CategoryCode": "category",
+        "DescriptionRaw": "description_raw",
+        "IsRecurringFlag": "is_recurring_flag",
+    }
 
-            # Utilities (seasonal variation)
-            winter_factor = 1.5 if month in [11, 12, 1, 2] else 1.0
-            utilities = -(120 * winter_factor + np.random.normal(0, 20))
-            transactions.append({
-                "tx_id": f"TX{tx_id:06d}",
-                "customer_id": "CUST001",
-                "account_id": "MAIN_CHECKING",
-                "tx_date": datetime(year, month, 5),
-                "amount": utilities,
-                "currency": "EUR",
-                "direction": "DEBIT",
-                "category": "UTILITIES",
-                "description_raw": f"UTILITIES {year}-{month:02d}",
-                "is_recurring_flag": True,
-                "is_variable_amount": True,
-            })
-            tx_id += 1
-
-            # Groceries (variable, multiple per month)
-            for _ in range(np.random.randint(3, 6)):
-                day = np.random.randint(1, 28)
-                amount = -(80 + np.random.exponential(40))
-                transactions.append({
-                    "tx_id": f"TX{tx_id:06d}",
-                    "customer_id": "CUST001",
-                    "account_id": "MAIN_CHECKING",
-                    "tx_date": datetime(year, month, day),
-                    "amount": amount,
-                    "currency": "EUR",
-                    "direction": "DEBIT",
-                    "category": "GROCERIES",
-                    "description_raw": f"GROCERIES PURCHASE",
-                    "is_recurring_flag": False,
-                    "is_variable_amount": True,
-                })
-                tx_id += 1
-
-            # Internal transfer (to be netted)
-            transactions.append({
-                "tx_id": f"TX{tx_id:06d}",
-                "customer_id": "CUST001",
-                "account_id": "MAIN_CHECKING",
-                "tx_date": datetime(year, month, 15),
-                "amount": -500,
-                "currency": "EUR",
-                "direction": "DEBIT",
-                "category": "TRANSFER_OUT",
-                "description_raw": "SAVINGS TRANSFER",
-                "is_recurring_flag": True,
-                "is_variable_amount": False,
-            })
-            tx_id += 1
-
-            transactions.append({
-                "tx_id": f"TX{tx_id:06d}",
-                "customer_id": "CUST001",
-                "account_id": "SAVINGS",
-                "tx_date": datetime(year, month, 15),
-                "amount": 500,
-                "currency": "EUR",
-                "direction": "CREDIT",
-                "category": "TRANSFER_IN",
-                "description_raw": "SAVINGS TRANSFER",
-                "is_recurring_flag": True,
-                "is_variable_amount": False,
-            })
-            tx_id += 1
-
-            # Outliers (anomalies)
-            # Tax refund in August 2024
-            if year == 2024 and month == 8:
-                transactions.append({
-                    "tx_id": f"TX{tx_id:06d}",
-                    "customer_id": "CUST001",
-                    "account_id": "MAIN_CHECKING",
-                    "tx_date": datetime(year, month, 15),
-                    "amount": 5000,
-                    "currency": "EUR",
-                    "direction": "CREDIT",
-                    "category": "TAX_REFUND",
-                    "description_raw": "TAX REFUND",
-                    "is_recurring_flag": False,
-                    "is_variable_amount": False,
-                })
-                tx_id += 1
-
-            # Vacation expenses in July
-            if month == 7:
-                transactions.append({
-                    "tx_id": f"TX{tx_id:06d}",
-                    "customer_id": "CUST001",
-                    "account_id": "MAIN_CHECKING",
-                    "tx_date": datetime(year, month, 20),
-                    "amount": -1800,
-                    "currency": "EUR",
-                    "direction": "DEBIT",
-                    "category": "TRAVEL",
-                    "description_raw": "VACATION EXPENSES",
-                    "is_recurring_flag": False,
-                    "is_variable_amount": False,
-                })
-                tx_id += 1
-
-    df = pd.DataFrame(transactions)
+    df = df.rename(columns=column_mapping)
     df["tx_date"] = pd.to_datetime(df["tx_date"])
+
+    # Add customer_id if not present (required by some pipeline stages)
+    if "customer_id" not in df.columns:
+        df["customer_id"] = "CUST001"
+
     return df
 
 
@@ -406,8 +288,9 @@ def main():
     output_dir = Path(__file__).parent.parent / "plots"
     output_dir.mkdir(exist_ok=True)
 
-    print("Generating synthetic data...")
-    utf_df = generate_synthetic_data(seed=42)
+    print(f"Loading UTF data from: {DEFAULT_UTF_PATH}")
+    utf_df = load_utf_data()
+    print(f"Loaded {len(utf_df)} transactions")
 
     print("Running forecast...")
     payload, historical_df = run_forecast(utf_df)

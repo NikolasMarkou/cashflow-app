@@ -11,23 +11,21 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
-from typing import Optional
 
-from cashflow.engine import ForecastEngine, ForecastConfig
 from cashflow.pipeline import clean_utf, detect_transfers, net_transfers, aggregate_monthly
 from cashflow.pipeline.decomposition import decompose_cashflow
 from cashflow.outliers.treatment import apply_residual_treatment
 
 # Import from visualize_forecast
-from visualize_forecast import generate_synthetic_data, COLORS, DPI
+from visualize_forecast import load_utf_data, COLORS, DPI, DEFAULT_UTF_PATH
 
 FIG_SIZE = (14, 10)
 FIG_SIZE_WIDE = (16, 5)
 
 
-def prepare_decomposed_data(seed: int = 42) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Prepare decomposed and outlier-treated data."""
-    utf_df = generate_synthetic_data(seed=seed)
+def prepare_decomposed_data(utf_path: Path = None) -> tuple[pd.DataFrame, dict]:
+    """Prepare decomposed and outlier-treated data from real UTF data."""
+    utf_df = load_utf_data(utf_path)
     utf_df = clean_utf(utf_df)
 
     # Detect and net transfers
@@ -326,12 +324,16 @@ def plot_transfer_netting_summary(
 
 
 def main():
-    """Generate all decomposition and outlier analysis plots."""
+    """Generate all decomposition and outlier analysis plots from real data."""
     output_dir = Path(__file__).parent.parent / "plots"
     output_dir.mkdir(exist_ok=True)
 
+    print(f"Loading UTF data from: {DEFAULT_UTF_PATH}")
     print("Preparing decomposed data...")
-    treated_df, transfer_summary = prepare_decomposed_data(seed=42)
+    treated_df, transfer_summary = prepare_decomposed_data()
+
+    print(f"Processed {len(treated_df)} months of data")
+    print(f"Transfers netted: {transfer_summary.get('num_transfers_removed', 0)}")
 
     print("\nGenerating plots...")
 

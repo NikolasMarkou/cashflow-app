@@ -1,4 +1,4 @@
-"""Multi-scenario visualization - comparing forecasts across different random conditions."""
+"""Forecast analysis visualization - confidence intervals and model performance."""
 
 from __future__ import annotations
 import sys
@@ -11,152 +11,13 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
-from typing import List, Dict
 
-from cashflow.engine import ForecastEngine, ForecastConfig
 from cashflow.schemas.forecast import ExplainabilityPayload
 
-# Import data generator from forecast visualization
-from visualize_forecast import generate_synthetic_data, run_forecast, COLORS, DPI
-
-# Extended color palette for multiple scenarios
-SCENARIO_COLORS = [
-    "#2E86AB",  # Steel blue
-    "#28A745",  # Green
-    "#FFC107",  # Amber
-    "#DC3545",  # Red
-    "#6F42C1",  # Purple
-    "#17A2B8",  # Cyan
-    "#FD7E14",  # Orange
-    "#20C997",  # Teal
-]
+# Import from forecast visualization
+from visualize_forecast import load_utf_data, run_forecast, COLORS, DPI, DEFAULT_UTF_PATH
 
 FIG_SIZE = (14, 8)
-FIG_SIZE_TALL = (14, 10)
-
-
-def run_multiple_scenarios(seeds: List[int]) -> Dict[int, tuple]:
-    """Run forecasts with multiple random seeds."""
-    results = {}
-    for seed in seeds:
-        print(f"  Running scenario with seed={seed}...")
-        utf_df = generate_synthetic_data(seed=seed)
-        payload, historical_df = run_forecast(utf_df)
-        results[seed] = (payload, historical_df)
-    return results
-
-
-def plot_scenario_comparison(
-    scenarios: Dict[int, tuple],
-    output_path: str,
-) -> None:
-    """Plot multiple forecast scenarios overlaid (spaghetti plot)."""
-    fig, ax = plt.subplots(figsize=FIG_SIZE)
-
-    all_forecasts = []
-    seeds = list(scenarios.keys())
-
-    # Plot each scenario
-    for i, (seed, (payload, historical_df)) in enumerate(scenarios.items()):
-        color = SCENARIO_COLORS[i % len(SCENARIO_COLORS)]
-
-        # Get forecast data
-        forecast_months = pd.to_datetime([f"{fr.month_key}-01" for fr in payload.forecast_results])
-        forecast_values = [fr.forecast_total for fr in payload.forecast_results]
-
-        all_forecasts.append(forecast_values)
-
-        # Plot individual scenario
-        ax.plot(forecast_months, forecast_values,
-                color=color, linewidth=1.5, alpha=0.7,
-                label=f"Seed {seed} (WMAPE: {payload.wmape_winner:.2f}%)")
-
-    # Calculate and plot mean forecast
-    mean_forecast = np.mean(all_forecasts, axis=0)
-    std_forecast = np.std(all_forecasts, axis=0)
-
-    ax.plot(forecast_months, mean_forecast,
-            color="#212529", linewidth=3, linestyle="-",
-            label="Mean Forecast", zorder=10)
-
-    # Confidence band (±1 std)
-    ax.fill_between(forecast_months,
-                    mean_forecast - std_forecast,
-                    mean_forecast + std_forecast,
-                    color="#21252920", edgecolor="#212529",
-                    linewidth=1, label="±1 Std Dev")
-
-    # Styling
-    ax.set_xlabel("Forecast Month", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Net External Cash Flow (EUR)", fontsize=12, fontweight="bold")
-    ax.set_title(f"Forecast Robustness: {len(seeds)} Different Data Scenarios\nShowing variance across random conditions",
-                fontsize=14, fontweight="bold", pad=20)
-
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
-    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    plt.xticks(rotation=45, ha="right")
-
-    ax.legend(loc="upper left", fontsize=9, framealpha=0.95, ncol=2)
-    ax.grid(True, alpha=0.3)
-    ax.set_facecolor("#FAFAFA")
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor="white")
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
-def plot_wmape_distribution(
-    scenarios: Dict[int, tuple],
-    output_path: str,
-) -> None:
-    """Plot distribution of WMAPE scores across scenarios."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
-
-    seeds = list(scenarios.keys())
-    wmapes = [scenarios[s][0].wmape_winner for s in seeds]
-    models = [scenarios[s][0].model_selected for s in seeds]
-
-    # Bar chart of WMAPE by seed
-    colors = [SCENARIO_COLORS[i % len(SCENARIO_COLORS)] for i in range(len(seeds))]
-    bars = ax1.bar(range(len(seeds)), wmapes, color=colors, edgecolor="white", linewidth=1.5)
-
-    ax1.set_xlabel("Scenario (Seed)", fontsize=11, fontweight="bold")
-    ax1.set_ylabel("WMAPE (%)", fontsize=11, fontweight="bold")
-    ax1.set_title("Model Accuracy Across Scenarios", fontsize=12, fontweight="bold")
-    ax1.set_xticks(range(len(seeds)))
-    ax1.set_xticklabels([str(s) for s in seeds])
-
-    # Add value labels
-    for bar, wmape, model in zip(bars, wmapes, models):
-        ax1.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
-                f"{wmape:.2f}%\n({model})", ha="center", va="bottom", fontsize=9)
-
-    ax1.axhline(y=20, color=COLORS["threshold"], linestyle="--",
-                linewidth=2, label="20% Threshold")
-    ax1.legend(loc="upper right")
-    ax1.grid(True, alpha=0.3, axis="y")
-    ax1.set_facecolor("#FAFAFA")
-
-    # Histogram of WMAPE distribution
-    ax2.hist(wmapes, bins=10, color=COLORS["actual"], edgecolor="white",
-             linewidth=1.5, alpha=0.7)
-    ax2.axvline(x=np.mean(wmapes), color=COLORS["forecast"], linewidth=2.5,
-                linestyle="-", label=f"Mean: {np.mean(wmapes):.2f}%")
-    ax2.axvline(x=20, color=COLORS["threshold"], linewidth=2,
-                linestyle="--", label="Threshold: 20%")
-
-    ax2.set_xlabel("WMAPE (%)", fontsize=11, fontweight="bold")
-    ax2.set_ylabel("Frequency", fontsize=11, fontweight="bold")
-    ax2.set_title("WMAPE Distribution", fontsize=12, fontweight="bold")
-    ax2.legend(loc="upper right")
-    ax2.grid(True, alpha=0.3, axis="y")
-    ax2.set_facecolor("#FAFAFA")
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor="white")
-    plt.close()
-    print(f"Saved: {output_path}")
 
 
 def plot_confidence_fan_chart(
@@ -225,40 +86,163 @@ def plot_confidence_fan_chart(
     print(f"Saved: {output_path}")
 
 
+def plot_model_performance(
+    payload: ExplainabilityPayload,
+    output_path: str,
+) -> None:
+    """Plot detailed model performance comparison."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    models = [c.model_name for c in payload.model_candidates]
+    wmapes = [c.wmape for c in payload.model_candidates]
+    is_winner = [c.is_winner for c in payload.model_candidates]
+
+    # Bar chart - WMAPE comparison
+    colors = [COLORS["winner"] if w else COLORS["loser"] for w in is_winner]
+    bars = ax1.bar(models, wmapes, color=colors, edgecolor="white", linewidth=2, width=0.5)
+
+    for bar, wmape, winner in zip(bars, wmapes, is_winner):
+        height = bar.get_height()
+        label = f"{wmape:.2f}%"
+        if winner:
+            label += "\n(Winner)"
+        ax1.text(bar.get_x() + bar.get_width()/2, height + 0.1,
+                label, ha="center", va="bottom", fontsize=11, fontweight="bold")
+
+    ax1.axhline(y=payload.wmape_threshold, color=COLORS["threshold"],
+                linewidth=2, linestyle="--", label=f"Threshold ({payload.wmape_threshold}%)")
+
+    ax1.set_xlabel("Model", fontsize=11, fontweight="bold")
+    ax1.set_ylabel("WMAPE (%)", fontsize=11, fontweight="bold")
+    ax1.set_title("Model WMAPE Comparison\nLower is Better", fontsize=12, fontweight="bold")
+    ax1.legend(loc="upper right")
+    ax1.grid(True, alpha=0.3, axis="y")
+    ax1.set_facecolor("#FAFAFA")
+    ax1.set_ylim(0, max(wmapes) * 1.5)
+
+    # Gauge-style visualization for winner
+    winner_wmape = payload.wmape_winner
+    threshold = payload.wmape_threshold
+
+    # Create a simple gauge
+    theta = np.linspace(0, np.pi, 100)
+    r = 1
+
+    # Background arc
+    ax2.fill_between(theta, 0, r, alpha=0.1, color="#6C757D")
+
+    # Threshold zone (red)
+    threshold_angle = np.pi * (1 - threshold / 30)  # Scale to 30% max
+    ax2.fill_between(theta[theta < threshold_angle], 0, r, alpha=0.3, color=COLORS["threshold"])
+
+    # Good zone (green)
+    ax2.fill_between(theta[theta >= threshold_angle], 0, r, alpha=0.3, color=COLORS["winner"])
+
+    # Needle
+    needle_angle = np.pi * (1 - winner_wmape / 30)
+    ax2.annotate("", xy=(needle_angle, 0.9), xytext=(np.pi/2, 0),
+                arrowprops=dict(arrowstyle="->", color="#212529", lw=3))
+
+    # Labels
+    ax2.text(np.pi/2, -0.15, f"{winner_wmape:.2f}%", ha="center", fontsize=16, fontweight="bold")
+    ax2.text(np.pi/2, -0.35, f"Model: {payload.model_selected}", ha="center", fontsize=12)
+    ax2.text(0, 0.1, "30%", ha="center", fontsize=10)
+    ax2.text(np.pi, 0.1, "0%", ha="center", fontsize=10)
+
+    ax2.set_xlim(-0.1, np.pi + 0.1)
+    ax2.set_ylim(-0.5, 1.1)
+    ax2.set_aspect("equal")
+    ax2.axis("off")
+    ax2.set_title("Winner WMAPE Gauge", fontsize=12, fontweight="bold", pad=20)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor="white")
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
+def plot_forecast_summary(
+    payload: ExplainabilityPayload,
+    output_path: str,
+) -> None:
+    """Plot summary statistics of the forecast."""
+    fig, ax = plt.subplots(figsize=(12, 6))
+
+    # Extract forecast data
+    months = [fr.month_key for fr in payload.forecast_results]
+    totals = [fr.forecast_total for fr in payload.forecast_results]
+    lowers = [fr.lower_ci for fr in payload.forecast_results]
+    uppers = [fr.upper_ci for fr in payload.forecast_results]
+
+    x = np.arange(len(months))
+
+    # Plot with error bars
+    ax.errorbar(x, totals, yerr=[np.array(totals) - np.array(lowers),
+                                  np.array(uppers) - np.array(totals)],
+                fmt="o-", color=COLORS["forecast"], linewidth=2,
+                markersize=8, capsize=5, capthick=2,
+                label="Forecast ± 95% CI")
+
+    # Add summary statistics
+    avg_forecast = np.mean(totals)
+    ax.axhline(y=avg_forecast, color=COLORS["actual"], linestyle="--",
+               linewidth=2, label=f"Average: {avg_forecast:.2f} EUR")
+
+    # Annotations
+    ax.fill_between(x, lowers, uppers, alpha=0.2, color=COLORS["forecast"])
+
+    # Styling
+    ax.set_xlabel("Forecast Month", fontsize=12, fontweight="bold")
+    ax.set_ylabel("Net External Cash Flow (EUR)", fontsize=12, fontweight="bold")
+    ax.set_title(f"12-Month Forecast Summary\n{payload.model_selected} Model | WMAPE: {payload.wmape_winner:.2f}%",
+                fontsize=14, fontweight="bold", pad=20)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(months, rotation=45, ha="right")
+
+    ax.legend(loc="upper right", fontsize=10, framealpha=0.95)
+    ax.grid(True, alpha=0.3)
+    ax.set_facecolor("#FAFAFA")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor="white")
+    plt.close()
+    print(f"Saved: {output_path}")
+
+
 def main():
-    """Generate all scenario comparison plots."""
+    """Generate forecast analysis plots from real data."""
     output_dir = Path(__file__).parent.parent / "plots"
     output_dir.mkdir(exist_ok=True)
 
-    # Define scenarios with different random seeds
-    seeds = [42, 123, 456, 789, 2024]
+    print(f"Loading UTF data from: {DEFAULT_UTF_PATH}")
+    utf_df = load_utf_data()
+    print(f"Loaded {len(utf_df)} transactions")
 
-    print(f"Running {len(seeds)} forecast scenarios...")
-    scenarios = run_multiple_scenarios(seeds)
+    print("Running forecast...")
+    payload, historical_df = run_forecast(utf_df)
 
     print("\nGenerating plots...")
 
-    # Plot 1: Scenario comparison (spaghetti plot)
-    plot_scenario_comparison(
-        scenarios,
-        str(output_dir / "scenario_comparison.png")
-    )
-
-    # Plot 2: WMAPE distribution
-    plot_wmape_distribution(
-        scenarios,
-        str(output_dir / "wmape_distribution.png")
-    )
-
-    # Plot 3: Confidence fan chart (using first scenario)
-    first_seed = seeds[0]
-    payload, historical_df = scenarios[first_seed]
+    # Plot 1: Confidence fan chart
     plot_confidence_fan_chart(
         payload, historical_df,
         str(output_dir / "confidence_fan_chart.png")
     )
 
-    print("\nDone! Scenario plots saved to:", output_dir)
+    # Plot 2: Model performance comparison
+    plot_model_performance(
+        payload,
+        str(output_dir / "model_performance.png")
+    )
+
+    # Plot 3: Forecast summary with error bars
+    plot_forecast_summary(
+        payload,
+        str(output_dir / "forecast_summary.png")
+    )
+
+    print("\nDone! Analysis plots saved to:", output_dir)
 
 
 if __name__ == "__main__":

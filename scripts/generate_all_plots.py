@@ -29,7 +29,7 @@ def main():
     forecast_main()
 
     print("\n" + "-" * 60)
-    print("2. SCENARIO COMPARISON")
+    print("2. FORECAST ANALYSIS")
     print("-" * 60)
     from visualize_scenarios import main as scenarios_main
     scenarios_main()
@@ -47,7 +47,7 @@ def main():
 
     # List generated files
     plot_files = list(output_dir.glob("*.png"))
-    print(f"\nGenerated {len(plot_files)} plots in: {output_dir}/")
+    print(f"\nGenerated {len(plot_files)} plots in: {output_dir}")
     print()
     for f in sorted(plot_files):
         print(f"  - {f.name}")
