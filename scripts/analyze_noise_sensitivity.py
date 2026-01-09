@@ -501,59 +501,6 @@ def plot_ci_width_vs_noise(results: Dict[str, List[NoiseResult]], output_path: s
     print(f"Saved: {output_path}")
 
 
-def plot_model_selection_distribution(results: Dict[str, List[NoiseResult]], output_path: str) -> None:
-    """Plot which models win at different noise levels."""
-    fig, ax = plt.subplots(figsize=(12, 6))
-
-    noise_levels = list(results.keys())
-
-    # Count model selections
-    ets_counts = []
-    sarima_counts = []
-
-    for level in noise_levels:
-        ets = sum(1 for r in results[level] if r.model_selected == "ETS")
-        sarima = sum(1 for r in results[level] if r.model_selected == "SARIMA")
-        ets_counts.append(ets)
-        sarima_counts.append(sarima)
-
-    x = np.arange(len(noise_levels))
-    width = 0.35
-
-    bars1 = ax.bar(x - width/2, ets_counts, width, label="ETS",
-                   color=COLORS["actual"], edgecolor="white", linewidth=1.5)
-    bars2 = ax.bar(x + width/2, sarima_counts, width, label="SARIMA",
-                   color=COLORS["forecast"], edgecolor="white", linewidth=1.5)
-
-    # Add value labels
-    for bar in bars1:
-        if bar.get_height() > 0:
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
-                   str(int(bar.get_height())), ha="center", va="bottom", fontsize=10)
-    for bar in bars2:
-        if bar.get_height() > 0:
-            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
-                   str(int(bar.get_height())), ha="center", va="bottom", fontsize=10)
-
-    ax.set_xlabel("Noise Level", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Number of Wins (out of 30 seeds)", fontsize=12, fontweight="bold")
-    ax.set_title("Model Selection Under Different Noise Conditions",
-                fontsize=14, fontweight="bold", pad=20)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([n.replace(" ", "\n") for n in noise_levels], fontsize=9)
-    ax.set_ylim(0, 6)
-
-    ax.legend(loc="upper right", fontsize=11)
-    ax.grid(True, alpha=0.3, axis="y")
-    ax.set_facecolor("#FAFAFA")
-
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=DPI, bbox_inches="tight", facecolor="white")
-    plt.close()
-    print(f"Saved: {output_path}")
-
-
 def plot_outlier_detection_rate(results: Dict[str, List[NoiseResult]], output_path: str) -> None:
     """Plot outlier detection across noise levels."""
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -729,13 +676,10 @@ def main():
     # Plot 3: CI width expansion
     plot_ci_width_vs_noise(results, str(output_dir / "ci_width_vs_noise.png"))
 
-    # Plot 4: Model selection distribution
-    plot_model_selection_distribution(results, str(output_dir / "model_selection.png"))
-
-    # Plot 5: Outlier detection rate
+    # Plot 4: Outlier detection rate
     plot_outlier_detection_rate(results, str(output_dir / "outlier_detection.png"))
 
-    # Plot 6: Threshold pass rate
+    # Plot 5: Threshold pass rate
     plot_threshold_pass_rate(results, str(output_dir / "threshold_pass_rate.png"))
 
     # Generate summary table
