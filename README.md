@@ -49,6 +49,9 @@ source venv/bin/activate  # Linux/Mac
 # Install the package
 pip install --upgrade pip
 pip install -e .
+
+# Install with web interface support
+pip install -e ".[web]"
 ```
 
 ## Quick Start
@@ -77,6 +80,49 @@ cashflow validate --utf data/transactions.csv -v
 ```bash
 cashflow init-config -o config.json
 ```
+
+## Web Interface
+
+A FastAPI-based web interface provides interactive forecasting with Plotly.js charts.
+
+### Start the Server
+
+```bash
+# Using the CLI command
+cashflow-web
+
+# Or using uvicorn directly
+uvicorn cashflow.web.app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Access the interface at **http://localhost:8000**
+
+### Features
+
+- **CSV Upload**: Upload UTF transaction data directly in the browser
+- **Full Configuration**: Customize all forecast parameters
+  - Forecast horizon (1-24 months)
+  - WMAPE threshold
+  - Outlier detection method and threshold
+  - Outlier treatment method
+  - Model selection (ETS, SARIMA, SARIMAX)
+  - Confidence level (90%, 95%, 99%)
+- **Interactive Charts** (Plotly.js):
+  - Historical + Forecast time series with confidence intervals
+  - Model comparison (WMAPE bar chart)
+  - Forecast component breakdown (deterministic + residual)
+  - Outlier analysis (original vs treated values)
+- **Metrics Dashboard**: WMAPE, selected model, threshold status, confidence level
+- **Statistics Summary**: Decomposition metrics, transfer netting summary
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Main forecast page |
+| `/api/forecast` | POST | Run forecast with CSV upload |
+| `/docs` | GET | Swagger API documentation |
+| `/openapi.json` | GET | OpenAPI specification |
 
 ## Input Data Formats
 
@@ -195,6 +241,13 @@ src/cashflow/
 │
 ├── explainability/    # LLM-ready output
 │   └── builder.py     # JSON payload generation
+│
+├── web/               # FastAPI web interface
+│   ├── app.py         # Application factory
+│   ├── routes/        # API and page routes
+│   ├── schemas/       # Response models
+│   ├── templates/     # Jinja2 HTML templates
+│   └── static/        # CSS and JavaScript
 │
 ├── cli.py             # Click CLI entrypoint
 └── utils.py           # Metrics (WMAPE), dates, validation
