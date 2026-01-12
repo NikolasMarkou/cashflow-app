@@ -36,10 +36,11 @@ def create_app() -> FastAPI:
     _register_exception_handlers(app)
 
     # Include routers
-    from cashflow.web.routes import forecast, pages
+    from cashflow.web.routes import forecast, pages, health
 
     app.include_router(pages.router, tags=["pages"])
     app.include_router(forecast.router, prefix="/api", tags=["forecast"])
+    app.include_router(health.router, tags=["health"])
 
     return app
 

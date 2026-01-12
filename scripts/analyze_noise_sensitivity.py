@@ -12,7 +12,7 @@ import matplotlib.dates as mdates
 import numpy as np
 import pandas as pd
 from datetime import datetime
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Set
 from dataclasses import dataclass
 
 from cashflow.engine import ForecastEngine, ForecastConfig
@@ -44,17 +44,386 @@ class NoiseConfig:
     random_expense_max: float  # Max amount for random expenses
     flag_corruption_rate: float = 0.0  # Probability of wrong is_recurring_flag
     salary_raise_month: int = 0  # Month to apply salary raise (0 = no raise)
+    # Fat-tailed distribution support (Phase 2.1)
+    noise_distribution: str = "gaussian"  # "gaussian" | "student_t" | "laplace" | "mixture"
+    df_param: float = 5.0  # Degrees of freedom for Student-t (lower = heavier tails)
+    mixture_extreme_prob: float = 0.05  # Probability of extreme event in mixture model
+    # Regime shift support (Phase 2.2)
+    salary_change_amount: float = 500.0  # Amount of salary change (positive = raise, negative = cut)
+    rent_change_month: int = 0  # Month to change rent (0 = no change)
+    rent_change_amount: float = 0.0  # Amount of rent change
+    category_extinction_month: int = 0  # Month when a category stops (0 = no extinction)
+    category_extinction_type: str = ""  # Category to stop ("subscription", "loan", etc.)
+    second_shift_month: int = 0  # Month for second regime shift (for multiple shifts)
+    second_shift_amount: float = 0.0  # Amount for second shift
+
+
+def sample_noise(std: float, config: NoiseConfig) -> float:
+    """Sample noise from the configured distribution.
+
+    Args:
+        std: Standard deviation (or scale) parameter
+        config: NoiseConfig with distribution settings
+
+    Returns:
+        A single noise sample
+    """
+    if std <= 0:
+        return 0.0
+
+    dist = config.noise_distribution
+
+    if dist == "gaussian":
+        return np.random.normal(0, std)
+
+    elif dist == "student_t":
+        # Student-t with df degrees of freedom, scaled to match std
+        # Variance of t(df) = df / (df - 2) for df > 2
+        df = config.df_param
+        if df > 2:
+            scale = std * np.sqrt((df - 2) / df)
+        else:
+            scale = std  # For df <= 2, variance is infinite, use std as scale
+        return np.random.standard_t(df) * scale
+
+    elif dist == "laplace":
+        # Laplace (double exponential) - common in finance
+        # Variance = 2 * scale^2, so scale = std / sqrt(2)
+        scale = std / np.sqrt(2)
+        return np.random.laplace(0, scale)
+
+    elif dist == "mixture":
+        # Mixture: 95% normal + 5% extreme events (3x std)
+        if np.random.random() < config.mixture_extreme_prob:
+            # Extreme event - 3x magnitude
+            return np.random.normal(0, std * 3)
+        else:
+            return np.random.normal(0, std)
+
+    else:
+        # Fallback to Gaussian
+        return np.random.normal(0, std)
 
 
 # Define noise levels from clean to very noisy
 # Added flag_corruption_rate and salary_raise to test improvements
-NOISE_LEVELS = [
+NOISE_LEVELS_GAUSSIAN = [
     NoiseConfig("Baseline (No Noise)", 0, 0, 0, 1.0, 0, 0, 0.0, 0),
     NoiseConfig("Very Low Noise", 25, 10, 20, 1.0, 0.05, 200, 0.1, 0),  # 10% flag corruption
     NoiseConfig("Low Noise", 50, 20, 40, 1.2, 0.10, 400, 0.2, 12),  # 20% flag corruption + raise at month 12
     NoiseConfig("Moderate Noise", 100, 40, 60, 1.5, 0.15, 600, 0.3, 12),  # 30% flag corruption + raise
     NoiseConfig("High Noise", 200, 80, 100, 2.0, 0.20, 1000, 0.4, 12),  # 40% flag corruption + raise
 ]
+
+# Phase 2.1: Fat-tailed distribution configurations
+# Student-t distributions (heavy tails - common in financial data)
+NOISE_LEVELS_STUDENT_T = [
+    NoiseConfig("Student-t (df=3)", 100, 40, 60, 1.5, 0.15, 600, 0.2, 12,
+                noise_distribution="student_t", df_param=3.0),  # Very heavy tails
+    NoiseConfig("Student-t (df=5)", 100, 40, 60, 1.5, 0.15, 600, 0.2, 12,
+                noise_distribution="student_t", df_param=5.0),  # Moderate heavy tails
+    NoiseConfig("Student-t (df=10)", 100, 40, 60, 1.5, 0.15, 600, 0.2, 12,
+                noise_distribution="student_t", df_param=10.0),  # Light heavy tails
+]
+
+# Laplace distribution (double exponential - sharp peak, heavy tails)
+NOISE_LEVELS_LAPLACE = [
+    NoiseConfig("Laplace Low", 50, 20, 40, 1.2, 0.10, 400, 0.2, 12,
+                noise_distribution="laplace"),
+    NoiseConfig("Laplace Moderate", 100, 40, 60, 1.5, 0.15, 600, 0.2, 12,
+                noise_distribution="laplace"),
+    NoiseConfig("Laplace High", 200, 80, 100, 2.0, 0.20, 1000, 0.3, 12,
+                noise_distribution="laplace"),
+]
+
+# Mixture models (normal + rare extreme events)
+NOISE_LEVELS_MIXTURE = [
+    NoiseConfig("Mixture (5% extreme)", 100, 40, 60, 1.5, 0.15, 600, 0.2, 12,
+                noise_distribution="mixture", mixture_extreme_prob=0.05),
+    NoiseConfig("Mixture (10% extreme)", 100, 40, 60, 1.5, 0.15, 600, 0.2, 12,
+                noise_distribution="mixture", mixture_extreme_prob=0.10),
+    NoiseConfig("Mixture (15% extreme)", 100, 40, 60, 1.5, 0.15, 600, 0.2, 12,
+                noise_distribution="mixture", mixture_extreme_prob=0.15),
+]
+
+# Phase 2.2: Regime shift configurations
+NOISE_LEVELS_REGIME_SHIFT = [
+    # Baseline with subscription and loan (no shifts)
+    NoiseConfig("Regime: Baseline", 50, 20, 40, 1.2, 0.10, 400, 0.1, 0),
+
+    # Positive shift: Promotion/salary increase at month 12
+    NoiseConfig("Regime: Salary Raise", 50, 20, 40, 1.2, 0.10, 400, 0.1, 12,
+                salary_change_amount=500),
+
+    # Negative shift: Job loss / reduced hours at month 12
+    NoiseConfig("Regime: Salary Cut", 50, 20, 40, 1.2, 0.10, 400, 0.1, 12,
+                salary_change_amount=-800),
+
+    # Multiple shifts: Raise at month 8, then cut at month 18
+    NoiseConfig("Regime: Multiple Shifts", 50, 20, 40, 1.2, 0.10, 400, 0.1, 8,
+                salary_change_amount=500, second_shift_month=18, second_shift_amount=-1000),
+
+    # Recent shift: Shift at month 22 (only 2 months of post-shift data)
+    NoiseConfig("Regime: Recent Shift", 50, 20, 40, 1.2, 0.10, 400, 0.1, 22,
+                salary_change_amount=600),
+
+    # Category extinction: Subscription cancelled at month 15
+    NoiseConfig("Regime: Sub Cancelled", 50, 20, 40, 1.2, 0.10, 400, 0.1, 0,
+                category_extinction_month=15, category_extinction_type="subscription"),
+
+    # Category extinction: Loan paid off at month 12
+    NoiseConfig("Regime: Loan Paid Off", 50, 20, 40, 1.2, 0.10, 400, 0.1, 0,
+                category_extinction_month=12, category_extinction_type="loan"),
+
+    # Rent increase at month 12
+    NoiseConfig("Regime: Rent Increase", 50, 20, 40, 1.2, 0.10, 400, 0.1, 0,
+                rent_change_month=12, rent_change_amount=200),
+
+    # Combined: Salary raise + rent increase (lifestyle upgrade)
+    NoiseConfig("Regime: Lifestyle Change", 50, 20, 40, 1.2, 0.10, 400, 0.1, 12,
+                salary_change_amount=800, rent_change_month=12, rent_change_amount=300),
+]
+
+# Default: Gaussian only (backward compatible)
+NOISE_LEVELS = NOISE_LEVELS_GAUSSIAN
+
+# All distributions combined for comprehensive analysis
+ALL_NOISE_LEVELS = (
+    NOISE_LEVELS_GAUSSIAN +
+    NOISE_LEVELS_STUDENT_T +
+    NOISE_LEVELS_LAPLACE +
+    NOISE_LEVELS_MIXTURE
+)
+
+# All regime shift scenarios for Phase 2.2 testing
+ALL_REGIME_SHIFTS = NOISE_LEVELS_REGIME_SHIFT
+
+
+# Phase 2.3: Transfer tolerance sweep configurations
+@dataclass
+class TransferConfig:
+    """Configuration for transfer delay scenarios."""
+    name: str
+    domestic_delay_range: Tuple[int, int]  # Min/max delay in days for domestic transfers
+    international_delay_range: Tuple[int, int]  # Min/max delay for international
+    domestic_ratio: float  # Ratio of domestic transfers (0-1)
+
+
+TRANSFER_CONFIGS = [
+    TransferConfig("Same-Day Transfers", (0, 0), (0, 0), 1.0),
+    TransferConfig("Domestic Only (0-2d)", (0, 2), (0, 2), 1.0),
+    TransferConfig("Mixed (Domestic + International)", (0, 2), (3, 5), 0.7),
+    TransferConfig("International Heavy (3-5d)", (3, 5), (3, 5), 0.3),
+    TransferConfig("High Variance (0-7d)", (0, 7), (0, 7), 0.5),
+]
+
+
+def generate_transfer_data(
+    transfer_config: TransferConfig,
+    num_transfers: int = 24,
+    seed: int = 42
+) -> pd.DataFrame:
+    """Generate synthetic data with configurable transfer delays.
+
+    Args:
+        transfer_config: Configuration for transfer delays
+        num_transfers: Number of transfer pairs to generate (default: 24 for 2 years monthly)
+        seed: Random seed
+
+    Returns:
+        DataFrame with transactions including transfer pairs with specified delays
+    """
+    np.random.seed(seed)
+    transactions = []
+    tx_id = 1
+
+    # Base transactions (non-transfers)
+    base_salary = 3000
+    base_rent = 1200
+
+    for month_idx in range(24):
+        year = 2024 + month_idx // 12
+        month = (month_idx % 12) + 1
+        month_start = datetime(year, month, 1)
+
+        # Salary
+        transactions.append({
+            "tx_id": f"TX{tx_id:06d}",
+            "customer_id": "CUST001",
+            "account_id": "MAIN_CHECKING",
+            "tx_date": month_start,
+            "amount": base_salary + np.random.normal(0, 50),
+            "currency": "EUR",
+            "direction": "CREDIT",
+            "category": "SALARY",
+            "description_raw": f"SALARY {year}-{month:02d}",
+            "is_recurring_flag": True,
+            "is_variable_amount": False,
+            "is_transfer": False,
+            "transfer_pair_id": None,
+            "actual_delay": None,
+        })
+        tx_id += 1
+
+        # Rent
+        transactions.append({
+            "tx_id": f"TX{tx_id:06d}",
+            "customer_id": "CUST001",
+            "account_id": "MAIN_CHECKING",
+            "tx_date": month_start,
+            "amount": -base_rent,
+            "currency": "EUR",
+            "direction": "DEBIT",
+            "category": "RENT_MORTGAGE",
+            "description_raw": f"RENT {year}-{month:02d}",
+            "is_recurring_flag": True,
+            "is_variable_amount": False,
+            "is_transfer": False,
+            "transfer_pair_id": None,
+            "actual_delay": None,
+        })
+        tx_id += 1
+
+        # Transfer pair with configurable delay
+        is_domestic = np.random.random() < transfer_config.domestic_ratio
+        if is_domestic:
+            delay_range = transfer_config.domestic_delay_range
+        else:
+            delay_range = transfer_config.international_delay_range
+
+        actual_delay = np.random.randint(delay_range[0], delay_range[1] + 1)
+        transfer_amount = 500
+        transfer_pair_id = f"PAIR{month_idx:03d}"
+
+        # Outgoing transfer - use neutral category to test amount+date matching
+        # (not TRANSFER_OUT which would be detected by category heuristics)
+        out_date = datetime(year, month, 15)
+        transactions.append({
+            "tx_id": f"TX{tx_id:06d}",
+            "customer_id": "CUST001",
+            "account_id": "MAIN_CHECKING",
+            "tx_date": out_date,
+            "amount": -transfer_amount,
+            "currency": "EUR",
+            "direction": "DEBIT",
+            "category": "MISCELLANEOUS",  # Neutral category - tests amount+date matching
+            "description_raw": "ACCOUNT TRANSFER",
+            "is_recurring_flag": False,
+            "is_variable_amount": False,
+            "is_transfer": True,
+            "transfer_pair_id": transfer_pair_id,
+            "actual_delay": actual_delay,
+        })
+        tx_id += 1
+
+        # Incoming transfer (with delay)
+        in_date = out_date + pd.Timedelta(days=actual_delay)
+        transactions.append({
+            "tx_id": f"TX{tx_id:06d}",
+            "customer_id": "CUST001",
+            "account_id": "SAVINGS",
+            "tx_date": in_date,
+            "amount": transfer_amount,
+            "currency": "EUR",
+            "direction": "CREDIT",
+            "category": "MISCELLANEOUS",  # Neutral category - tests amount+date matching
+            "description_raw": "ACCOUNT TRANSFER",
+            "is_recurring_flag": False,
+            "is_variable_amount": False,
+            "is_transfer": True,
+            "transfer_pair_id": transfer_pair_id,
+            "actual_delay": actual_delay,
+        })
+        tx_id += 1
+
+    df = pd.DataFrame(transactions)
+    df["tx_date"] = pd.to_datetime(df["tx_date"])
+    return df
+
+
+def evaluate_transfer_detection(
+    df: pd.DataFrame,
+    tolerance_days: int
+) -> Dict[str, float]:
+    """Evaluate transfer detection accuracy at a given tolerance.
+
+    Args:
+        df: DataFrame with ground truth transfer markers
+        tolerance_days: Tolerance setting for transfer detection
+
+    Returns:
+        Dict with precision, recall, f1, and other metrics
+    """
+    from cashflow.pipeline import clean_utf, detect_transfers
+
+    # Get ground truth
+    ground_truth_transfers = set(df[df["is_transfer"] == True]["tx_id"].tolist())
+    total_true_transfers = len(ground_truth_transfers)
+
+    # Clean and detect transfers
+    df_clean = df.drop(columns=["is_transfer", "transfer_pair_id", "actual_delay"], errors="ignore")
+    df_clean = clean_utf(df_clean)
+    df_detected = detect_transfers(df_clean, date_tolerance_days=tolerance_days)
+
+    # Get detected transfers
+    detected_transfers = set(
+        df_detected[df_detected["is_internal_transfer"] == True]["tx_id"].tolist()
+    )
+    total_detected = len(detected_transfers)
+
+    # Calculate metrics
+    true_positives = len(ground_truth_transfers & detected_transfers)
+    false_positives = len(detected_transfers - ground_truth_transfers)
+    false_negatives = len(ground_truth_transfers - detected_transfers)
+
+    precision = true_positives / total_detected if total_detected > 0 else 0
+    recall = true_positives / total_true_transfers if total_true_transfers > 0 else 0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
+
+    return {
+        "tolerance_days": tolerance_days,
+        "true_positives": true_positives,
+        "false_positives": false_positives,
+        "false_negatives": false_negatives,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "total_true": total_true_transfers,
+        "total_detected": total_detected,
+    }
+
+
+def run_transfer_tolerance_sweep(
+    transfer_config: TransferConfig,
+    tolerance_range: List[int] = None,
+    seeds: List[int] = None
+) -> pd.DataFrame:
+    """Run transfer detection sweep across tolerance values.
+
+    Args:
+        transfer_config: Transfer delay configuration
+        tolerance_range: List of tolerance values to test
+        seeds: Random seeds to use
+
+    Returns:
+        DataFrame with results for each tolerance/seed combination
+    """
+    if tolerance_range is None:
+        tolerance_range = [0, 1, 2, 3, 5, 7]
+    if seeds is None:
+        seeds = list(range(10))
+
+    results = []
+
+    for tolerance in tolerance_range:
+        for seed in seeds:
+            df = generate_transfer_data(transfer_config, seed=seed)
+            metrics = evaluate_transfer_detection(df, tolerance)
+            metrics["config_name"] = transfer_config.name
+            metrics["seed"] = seed
+            results.append(metrics)
+
+    return pd.DataFrame(results)
 
 
 def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.DataFrame:
@@ -90,14 +459,16 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
             month_number += 1
             month_start = datetime(year, month, 1)
 
-            # Apply salary raise if configured
+            # Apply salary change if configured (supports both raises and cuts)
+            current_base_salary = base_salary
             if noise_config.salary_raise_month > 0 and month_number >= noise_config.salary_raise_month:
-                current_base_salary = base_salary + 500  # €500 raise
-            else:
-                current_base_salary = base_salary
+                current_base_salary = base_salary + noise_config.salary_change_amount
+            # Apply second shift if configured (for multiple shifts scenario)
+            if noise_config.second_shift_month > 0 and month_number >= noise_config.second_shift_month:
+                current_base_salary = current_base_salary + noise_config.second_shift_amount
 
-            # Salary (recurring income) - with noise
-            salary_noise = np.random.normal(0, noise_config.salary_std) if noise_config.salary_std > 0 else 0
+            # Salary (recurring income) - with noise from configured distribution
+            salary_noise = sample_noise(noise_config.salary_std, noise_config)
             salary = current_base_salary + salary_noise
 
             # Corrupt flag with configured probability
@@ -120,7 +491,11 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
             })
             tx_id += 1
 
-            # Rent (recurring expense) - fixed
+            # Rent (recurring expense) - with optional rent change
+            current_rent = base_rent
+            if noise_config.rent_change_month > 0 and month_number >= noise_config.rent_change_month:
+                current_rent = base_rent + noise_config.rent_change_amount
+
             rent_flag = True
             if np.random.random() < noise_config.flag_corruption_rate:
                 rent_flag = False
@@ -130,7 +505,7 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
                 "customer_id": "CUST001",
                 "account_id": "MAIN_CHECKING",
                 "tx_date": month_start,
-                "amount": -base_rent,
+                "amount": -current_rent,
                 "currency": "EUR",
                 "direction": "DEBIT",
                 "category": "RENT_MORTGAGE",
@@ -140,9 +515,61 @@ def generate_synthetic_data(noise_config: NoiseConfig, seed: int = 42) -> pd.Dat
             })
             tx_id += 1
 
-            # Utilities (seasonal variation + noise)
+            # Subscription (recurring expense) - can be extinct
+            subscription_active = True
+            if noise_config.category_extinction_type == "subscription":
+                if noise_config.category_extinction_month > 0 and month_number >= noise_config.category_extinction_month:
+                    subscription_active = False
+
+            if subscription_active:
+                sub_flag = True
+                if np.random.random() < noise_config.flag_corruption_rate:
+                    sub_flag = False
+
+                transactions.append({
+                    "tx_id": f"TX{tx_id:06d}",
+                    "customer_id": "CUST001",
+                    "account_id": "MAIN_CHECKING",
+                    "tx_date": datetime(year, month, 10),
+                    "amount": -50,  # €50/month subscription
+                    "currency": "EUR",
+                    "direction": "DEBIT",
+                    "category": "SUBSCRIPTION",
+                    "description_raw": "STREAMING SERVICE",
+                    "is_recurring_flag": sub_flag,
+                    "is_variable_amount": False,
+                })
+                tx_id += 1
+
+            # Loan payment (recurring expense) - can be extinct (loan paid off)
+            loan_active = True
+            if noise_config.category_extinction_type == "loan":
+                if noise_config.category_extinction_month > 0 and month_number >= noise_config.category_extinction_month:
+                    loan_active = False
+
+            if loan_active:
+                loan_flag = True
+                if np.random.random() < noise_config.flag_corruption_rate:
+                    loan_flag = False
+
+                transactions.append({
+                    "tx_id": f"TX{tx_id:06d}",
+                    "customer_id": "CUST001",
+                    "account_id": "MAIN_CHECKING",
+                    "tx_date": datetime(year, month, 15),
+                    "amount": -300,  # €300/month loan payment
+                    "currency": "EUR",
+                    "direction": "DEBIT",
+                    "category": "LOAN_PAYMENT",
+                    "description_raw": "CAR LOAN",
+                    "is_recurring_flag": loan_flag,
+                    "is_variable_amount": False,
+                })
+                tx_id += 1
+
+            # Utilities (seasonal variation + noise from configured distribution)
             winter_factor = 1.5 if month in [11, 12, 1, 2] else 1.0
-            utility_noise = np.random.normal(0, noise_config.expense_std) if noise_config.expense_std > 0 else 0
+            utility_noise = sample_noise(noise_config.expense_std, noise_config)
             utilities = -(base_utilities * winter_factor + utility_noise)
 
             utility_flag = True
@@ -683,35 +1110,101 @@ def generate_summary_table(results: Dict[str, List[NoiseResult]], output_path: s
 
 def main():
     """Run complete noise sensitivity analysis."""
-    output_dir = Path(__file__).parent.parent / "plots" / "noise_analysis"
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Noise sensitivity analysis for cashflow forecasting")
+    parser.add_argument(
+        "--distribution", "-d",
+        choices=["gaussian", "student_t", "laplace", "mixture", "regime_shift", "all"],
+        default="gaussian",
+        help="Distribution type to analyze (default: gaussian)"
+    )
+    parser.add_argument(
+        "--seeds", "-s",
+        type=int,
+        default=30,
+        help="Number of random seeds to use (default: 30)"
+    )
+    parser.add_argument(
+        "--output-dir", "-o",
+        type=str,
+        default=None,
+        help="Output directory for plots (default: plots/noise_analysis)"
+    )
+    args = parser.parse_args()
+
+    # Select noise levels based on distribution type
+    if args.distribution == "gaussian":
+        noise_levels = NOISE_LEVELS_GAUSSIAN
+        suffix = ""
+    elif args.distribution == "student_t":
+        noise_levels = NOISE_LEVELS_STUDENT_T
+        suffix = "_student_t"
+    elif args.distribution == "laplace":
+        noise_levels = NOISE_LEVELS_LAPLACE
+        suffix = "_laplace"
+    elif args.distribution == "mixture":
+        noise_levels = NOISE_LEVELS_MIXTURE
+        suffix = "_mixture"
+    elif args.distribution == "regime_shift":
+        noise_levels = NOISE_LEVELS_REGIME_SHIFT
+        suffix = "_regime_shift"
+    elif args.distribution == "all":
+        noise_levels = ALL_NOISE_LEVELS
+        suffix = "_all"
+    else:
+        noise_levels = NOISE_LEVELS_GAUSSIAN
+        suffix = ""
+
+    # Set output directory
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+    else:
+        output_dir = Path(__file__).parent.parent / "plots" / "noise_analysis"
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Generate seed list
+    base_seeds = [42, 123, 456, 789, 2024, 1337, 9999, 5555, 7777, 3141,
+                  1111, 2222, 3333, 4444, 6666, 8888, 1234, 5678, 9012, 3456,
+                  1001, 2002, 3003, 4004, 5005, 6006, 7007, 8008, 9009, 1010]
+    seeds = base_seeds[:args.seeds]
 
     print("=" * 60)
     print("NOISE SENSITIVITY ANALYSIS")
+    print(f"Distribution: {args.distribution.upper()}")
     print("=" * 60)
 
-    print(f"\nAnalyzing {len(NOISE_LEVELS)} noise levels with 30 random seeds each...")
-    results = run_noise_analysis()
+    print(f"\nAnalyzing {len(noise_levels)} noise levels with {len(seeds)} random seeds each...")
+
+    # Override global NOISE_LEVELS for run_noise_analysis
+    global NOISE_LEVELS
+    original_levels = NOISE_LEVELS
+    NOISE_LEVELS = noise_levels
+
+    results = run_noise_analysis(seeds=seeds)
+
+    # Restore original
+    NOISE_LEVELS = original_levels
 
     print("\nGenerating plots...")
 
     # Plot 1: WMAPE vs Noise
-    plot_wmape_vs_noise(results, str(output_dir / "wmape_vs_noise.png"))
+    plot_wmape_vs_noise(results, str(output_dir / f"wmape_vs_noise{suffix}.png"))
 
     # Plot 2: Forecast comparison
-    plot_forecast_comparison(results, str(output_dir / "forecast_trajectories.png"))
+    plot_forecast_comparison(results, str(output_dir / f"forecast_trajectories{suffix}.png"))
 
     # Plot 3: CI width expansion
-    plot_ci_width_vs_noise(results, str(output_dir / "ci_width_vs_noise.png"))
+    plot_ci_width_vs_noise(results, str(output_dir / f"ci_width_vs_noise{suffix}.png"))
 
     # Plot 4: Outlier detection rate
-    plot_outlier_detection_rate(results, str(output_dir / "outlier_detection.png"))
+    plot_outlier_detection_rate(results, str(output_dir / f"outlier_detection{suffix}.png"))
 
     # Plot 5: Threshold pass rate
-    plot_threshold_pass_rate(results, str(output_dir / "threshold_pass_rate.png"))
+    plot_threshold_pass_rate(results, str(output_dir / f"threshold_pass_rate{suffix}.png"))
 
     # Generate summary table
-    generate_summary_table(results, str(output_dir / "summary_table.png"))
+    generate_summary_table(results, str(output_dir / f"summary_table{suffix}.png"))
 
     print("\n" + "=" * 60)
     print("ANALYSIS COMPLETE")
@@ -723,7 +1216,9 @@ def main():
     for level in results.keys():
         if results[level]:
             wmapes = [r.wmape for r in results[level]]
-            print(f"{level}: WMAPE = {np.mean(wmapes):.2f}% ± {np.std(wmapes):.2f}%")
+            passes = sum(1 for r in results[level] if r.meets_threshold)
+            pass_rate = 100 * passes / len(results[level])
+            print(f"{level}: WMAPE = {np.mean(wmapes):.2f}% ± {np.std(wmapes):.2f}%, Pass Rate = {pass_rate:.0f}%")
 
 
 if __name__ == "__main__":
