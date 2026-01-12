@@ -2,6 +2,190 @@
 
 All notable changes to the Cash Flow Forecasting Engine are documented in this file.
 
+## [0.6.0] - 2026-01-12
+
+### Added
+
+#### Phase 2: Robustness & Realism Validation
+
+- **Fat-tailed distributions** in `scripts/analyze_noise_sensitivity.py`
+  - Student-t distribution (df=3, 5, 10) for heavy-tailed financial data
+  - Laplace distribution (double-exponential) for sudden changes
+  - Mixture models (95% normal + 5% extreme events)
+  - New `sample_noise()` function with distribution selection
+
+- **Regime shift testing** - 9 scenarios covering real-world disruptions:
+  - Salary Raise (+£500/month)
+  - Salary Cut (-£800/month)
+  - Multiple Shifts (2-3 in 24 months)
+  - Recent Shift (3 months before forecast)
+  - Subscription Cancelled (category extinction)
+  - Loan Paid Off (large payment removal)
+  - Rent Increase (+£200/month)
+  - Lifestyle Change (combined stress)
+
+- **Transfer tolerance sweep** with precision/recall metrics
+  - `TransferConfig` dataclass for domestic/international delays
+  - `generate_transfer_data()` for test fixtures
+  - `evaluate_transfer_detection()` measuring P/R/F1
+
+- **New script:** `scripts/robustness_analysis.py`
+  - Aggregates all Phase 2 tests
+  - Generates comparison plots and summary CSV
+  - Output: `plots/robustness_analysis/`
+
+#### Phase 3: Production Alignment
+
+- **Enhanced synthetic data generator:** `scripts/generate_realistic_data.py`
+  - 13 counterparty categories with 100+ unique counterparties
+  - 5 customer profiles (Young Professional, Family, Retiree, Student, High Earner)
+  - Realistic category distributions (not uniform)
+  - Missing data patterns (random and systematic)
+  - Multi-account scenarios
+
+- **Data quality contracts:** `src/cashflow/pipeline/validation.py`
+  - `DataQualityContract` class with configurable thresholds
+  - `ContractResult` with pass/fail and detailed violations
+  - `ContractViolation` for individual rule failures
+  - Preset contracts: `STRICT_CONTRACT`, `LENIENT_CONTRACT`, `DEFAULT_CONTRACT`
+  - Checks: required fields, row count, date range, monthly coverage, missing data, duplicates, amounts, currencies, directions
+
+- **Model fallback behavior** in `src/cashflow/models/selection.py`
+  - `FallbackConfig` dataclass with fallback chain configuration
+  - `NaiveModel` class (rolling average fallback)
+  - Fallback chain: SARIMAX → SARIMA → ETS → Naive
+  - Graceful degradation when primary models fail
+  - Fallback indicator in model output
+
+- **Enhanced confidence scoring** in `src/cashflow/utils.py`
+  - `ConfidenceBreakdown` dataclass with 4 components (25 points each)
+  - `calculate_enhanced_confidence()` returning numeric 0-100 score
+  - Components: data quality, history length, model accuracy, forecast stability
+  - `calculate_data_quality_score()` from actual DataFrame analysis
+  - Levels: High (≥70), Medium (≥40), Low (<40)
+
+#### Phase 4: Monitoring & Observability
+
+- **Structured logging module:** `src/cashflow/monitoring/logging.py`
+  - `LogConfig` with format options (text/JSON)
+  - `JsonFormatter` for ELK/Splunk compatibility
+  - `TextFormatter` for development
+  - `StructuredLogger` with context and metrics support
+  - Pipeline-specific methods: `pipeline_start()`, `pipeline_stage()`, `model_selection()`, `threshold_violation()`
+
+- **Metrics export module:** `src/cashflow/monitoring/metrics.py`
+  - `ForecastMetrics` dataclass capturing all forecast metrics
+  - `MetricsCollector` with context manager for tracking
+  - `to_dict()` for JSON serialization
+  - `to_prometheus()` for Prometheus exposition format
+  - Aggregate statistics: mean WMAPE, pass rate, fallback rate
+
+- **Health check endpoints:** `src/cashflow/web/routes/health.py`
+  - `GET /health` - Full component health with latency
+  - `GET /health/live` - Kubernetes liveness probe
+  - `GET /health/ready` - Kubernetes readiness probe
+  - Component checks: models, pipeline, engine, validation, monitoring
+  - Status levels: healthy, degraded, unhealthy
+
+#### Documentation
+
+- **Orlando handover document:** `docs/2025_12_19_orlando_next_steps.md`
+  - Original PoC handover communication
+  - Suggested evaluation phases
+
+- **Implementation plan:** `docs/2026_01_12_plan_ahead.md`
+  - Response to Orlando handover
+  - Completed implementation status
+  - Validation methodology and acceptance thresholds
+  - Test results and verification
+  - Remaining work roadmap
+
+### Changed
+
+- **`scripts/analyze_noise_sensitivity.py`** - Major extension (+517 lines)
+  - Extended `NoiseConfig` with distribution and regime shift parameters
+  - Added `NOISE_LEVELS_STUDENT_T`, `NOISE_LEVELS_LAPLACE`, `NOISE_LEVELS_MIXTURE`
+  - Added `NOISE_LEVELS_REGIME_SHIFT` with 9 scenarios
+  - CLI `--distribution` argument for distribution selection
+
+- **`src/cashflow/models/selection.py`** - Fallback support
+  - Added `FallbackConfig` and `NaiveModel`
+  - Updated `ModelSelector` with `evaluate_with_fallback()`
+
+- **`src/cashflow/utils.py`** - Confidence scoring
+  - Added `dataclass` import
+  - Added `ConfidenceBreakdown`, `calculate_enhanced_confidence()`, `calculate_data_quality_score()`
+
+- **`src/cashflow/web/app.py`** - Health router registration
+  - Added health router import and registration
+
+### Acceptance Thresholds
+
+| Metric | Threshold | Status |
+|--------|-----------|--------|
+| WMAPE | < 20% | PASS (baseline) |
+| Pass Rate | > 70% | PASS (73% with 10% corruption) |
+| Confidence Correlation | r > 0.5 | Implemented |
+| Fallback Rate | < 15% | Implemented |
+| Transfer Detection Recall | > 95% | Implemented |
+| Transfer Detection Precision | > 90% | Implemented |
+
+### Test Results
+
+All 37 existing tests pass. New components verified:
+
+| Component | Verification | Result |
+|-----------|--------------|--------|
+| Fat-tailed distributions | 1000 samples per distribution | PASS |
+| Regime shifts | 9 scenarios configured | PASS |
+| Transfer tolerance | 96 test transactions | PASS |
+| Synthetic generator | 316 transactions generated | PASS |
+| Data quality contracts | Enforcement with violations | PASS |
+| NaiveModel fallback | Predict [115.0, 115.0, 115.0] | PASS |
+| Confidence scoring | Score 79.9/100 (High) | PASS |
+| Structured logging | JSON format configured | PASS |
+| Metrics export | Prometheus format | PASS |
+| Health endpoint | Status: healthy, 5 components | PASS |
+
+### New Files
+
+```
+docs/2025_12_19_orlando_next_steps.md
+docs/2026_01_12_plan_ahead.md
+scripts/generate_realistic_data.py
+scripts/robustness_analysis.py
+src/cashflow/monitoring/__init__.py
+src/cashflow/monitoring/logging.py
+src/cashflow/monitoring/metrics.py
+src/cashflow/pipeline/validation.py
+src/cashflow/web/routes/health.py
+```
+
+### Modified Files
+
+```
+scripts/analyze_noise_sensitivity.py  (+517 lines)
+src/cashflow/models/selection.py      (+fallback support)
+src/cashflow/utils.py                 (+confidence scoring)
+src/cashflow/web/app.py               (+health router)
+```
+
+### Outstanding Work
+
+1. **Phase 3.1b: Real Data Integration** (when banking data available)
+   - `DataAdapter` interface for pluggable data sources
+   - Column mapping configuration
+   - Anonymization utilities
+   - Real vs synthetic distribution comparison
+
+2. **Phase 4: Full Industrialization** (future)
+   - Scalability testing and batch processing
+   - Model versioning (MLflow integration)
+   - A/B testing framework
+   - Operational runbooks
+
+---
+
 ## [0.5.0] - 2026-01-09
 
 ### Added
