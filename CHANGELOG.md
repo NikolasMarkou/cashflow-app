@@ -170,6 +170,40 @@ src/cashflow/utils.py                 (+confidence scoring)
 src/cashflow/web/app.py               (+health router)
 ```
 
+### Generated Plots
+
+#### Robustness Analysis (`plots/robustness_analysis/`)
+```
+distribution_comparison.png    - WMAPE comparison across distribution types
+regime_shift_accuracy.png      - Pass rate by regime shift scenario
+transfer_tolerance_sweep.png   - Precision/recall curves by tolerance
+robustness_summary.csv         - Aggregate robustness metrics
+```
+
+#### Noise Sensitivity Analysis (`plots/noise_analysis/`)
+```
+wmape_vs_noise.png            - WMAPE distribution by noise level
+forecast_trajectories.png     - Forecast paths per noise level
+ci_width_vs_noise.png         - Confidence interval width comparison
+outlier_detection.png         - Outlier counts by noise level
+threshold_pass_rate.png       - Pass rate (WMAPE < 20%) chart
+summary_table.csv             - Aggregate metrics table
+summary_table.png             - Visual summary table
+```
+
+#### Main Visualizations (`plots/`)
+```
+forecast_timeseries.png       - Time series with forecast + CI
+forecast_components.png       - Decomposition components
+model_comparison.png          - Model WMAPE comparison
+confidence_fan_chart.png      - Confidence interval fan chart
+model_performance.png         - Model performance metrics
+forecast_summary.png          - Summary dashboard
+decomposition_panels.png      - Decomposition analysis
+outlier_analysis.png          - Outlier detection results
+transfer_netting.png          - Transfer netting visualization
+```
+
 ### Outstanding Work
 
 1. **Phase 3.1b: Real Data Integration** (when banking data available)
