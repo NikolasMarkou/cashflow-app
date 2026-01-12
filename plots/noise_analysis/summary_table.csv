@@ -1,6 +1,6 @@
 Noise Level,WMAPE Mean,WMAPE Std,CI Width,Outliers,Pass Rate,ETS Wins
-Baseline (No Noise),20.02%,8.95%,366,2.9,63%,24/30
-Very Low Noise,17.64%,8.73%,377,7.1,73%,24/30
-Low Noise,46.24%,41.59%,2176,6.6,30%,20/30
-Moderate Noise,83.08%,47.23%,5983,2.4,10%,17/30
-High Noise,86.26%,36.14%,7743,1.3,0%,17/30
+Baseline (No Noise),27.20%,23.12%,646,2.7,50%,9/10
+Very Low Noise,22.42%,10.88%,430,6.8,50%,7/10
+Low Noise,53.41%,33.80%,3456,4.8,20%,4/10
+Moderate Noise,80.96%,40.16%,6457,1.6,10%,9/10
+High Noise,92.62%,28.42%,8263,1.2,0%,5/10

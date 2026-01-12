@@ -1,0 +1,21 @@
+Phase,Scenario,WMAPE Mean,WMAPE Std,Pass Rate,vs Gaussian,vs Baseline,Optimal Tolerance,Optimal F1,Recall@2d
+2.1 Distributions,Gaussian,95.9192,41.962414775129425,0.0,0.0,,,,
+2.1 Distributions,Student-t (df=3),71.2329,42.38043496815482,20.0,-24.686300000000003,,,,
+2.1 Distributions,Student-t (df=5),69.97049999999999,48.90646713114739,20.0,-25.948700000000017,,,,
+2.1 Distributions,Student-t (df=10),67.9958,47.189516701911664,20.0,-27.9234,,,,
+2.1 Distributions,Laplace,55.622400000000006,26.007479305768946,10.0,-40.2968,,,,
+2.1 Distributions,Mixture,70.3989,46.5859105297943,0.0,-25.520300000000006,,,,
+2.2 Regime Shifts,Baseline,26.486399999999996,10.27168748745794,20.0,,0.0,,,
+2.2 Regime Shifts,Salary Raise,24.5209,7.942346661409334,20.0,,-1.9654999999999951,,,
+2.2 Regime Shifts,Salary Cut,28.609099999999994,15.17242230133343,20.0,,2.1226999999999983,,,
+2.2 Regime Shifts,Multiple Shifts,27.939299999999996,12.935912662429349,20.0,,1.4528999999999996,,,
+2.2 Regime Shifts,Recent Shift,26.486399999999996,10.27168748745794,20.0,,0.0,,,
+2.2 Regime Shifts,Sub Cancelled,34.23219999999999,15.603090916866439,20.0,,7.745799999999996,,,
+2.2 Regime Shifts,Loan Paid Off,20.7553,7.937421193939501,40.0,,-5.731099999999998,,,
+2.2 Regime Shifts,Rent Increase,27.5565,11.98655235878941,20.0,,1.0701000000000036,,,
+2.2 Regime Shifts,Lifestyle Change,30.6188,18.76832746837075,20.0,,4.132400000000004,,,
+2.3 Transfer Tolerance,Same-Day Transfers,,,,,0.0,0.0,100.0,100.0
+2.3 Transfer Tolerance,Domestic Only (0-2d),,,,,0.0,2.0,100.0,100.0
+2.3 Transfer Tolerance,Mixed (Domestic + International),,,,,0.0,5.0,100.0,73.33333333333334
+2.3 Transfer Tolerance,International Heavy (3-5d),,,,,0.0,5.0,100.0,0.0
+2.3 Transfer Tolerance,High Variance (0-7d),,,,,0.0,7.0,100.0,36.25
