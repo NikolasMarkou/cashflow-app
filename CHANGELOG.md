@@ -2,6 +2,27 @@
 
 All notable changes to the Cash Flow Forecasting Engine are documented in this file.
 
+## [0.6.1] - 2026-01-13
+
+### Added
+
+- **Profile-based WMAPE analysis:** `scripts/analyze_profile_wmape.py`
+  - 3 customer profiles: Personal, SME, Corporate with distinct characteristics
+  - Personal: Single income source, 4 fixed expenses, low transaction volume
+  - SME: Multiple client payments (5), higher variability, 30-60 transactions/month
+  - Corporate: 20 revenue streams, 15 fixed expenses, 100-200 transactions/month
+  - 3 noise scenarios (Low, Moderate, High) with configurable parameters
+  - WMAPE evolution tracking across 12-month forecast horizon
+  - Holdout validation using actual generated data
+
+- **New visualizations** in `plots/profile_analysis/`:
+  - `wmape_horizon_by_profile.png` - WMAPE evolution by customer type
+  - `wmape_horizon_by_noise.png` - WMAPE evolution by noise level
+  - `wmape_heatmap.png` - Profile vs noise matrix
+  - `wmape_per_step_bars.png` - Per-step (non-cumulative) error bars
+  - `forecast_trajectories.png` - 3x3 grid of forecast vs actual
+  - `summary_table.png/csv` - Aggregated metrics
+
 ## [0.6.0] - 2026-01-12
 
 ### Added
