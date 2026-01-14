@@ -201,9 +201,20 @@ def _select_recurring_mask(tx_df: pd.DataFrame) -> pd.Series:
     )
 
     # Decision logic with stability check
+    # Key insight: prefer discovered if it's significantly more stable (>0.1 improvement)
+    stability_improvement = discovered_stability - original_stability
+
     if original_coverage >= MIN_RECURRING_VALUE_RATIO:
-        # Check if original flags are stable (not corrupted)
-        if original_stability >= 0.5:  # Stability threshold
+        # Check if discovered is significantly more stable
+        if stability_improvement >= 0.1 and discovered_stability >= 0.9:
+            # Discovered is much better, use it even if original is "acceptable"
+            logger.info(
+                f"Preferring is_recurring_discovered: significantly more stable "
+                f"(original={original_stability:.2f}, discovered={discovered_stability:.2f}, "
+                f"improvement={stability_improvement:.2f})"
+            )
+            return discovered_flag
+        elif original_stability >= 0.5:  # Stability threshold
             logger.debug(
                 f"Using is_recurring_flag (coverage: {original_coverage:.1%}, "
                 f"stability: {original_stability:.2f})"
