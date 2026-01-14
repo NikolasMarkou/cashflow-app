@@ -139,7 +139,7 @@ RANDOMNESS_CONFIGS: Dict[RandomnessLevel, RandomnessConfig] = {
         residual_volatility=0.135,  # Reduced 10% from 0.15
         residual_transaction_multiplier=0.9,  # Reduced 10%
         predictable_expense_pct=0.80,  # 80% predictable
-        flag_corruption_rate=0.05,
+        flag_corruption_rate=0.02,  # Reduced from 5% to 2%
     ),
     RandomnessLevel.MEDIUM: RandomnessConfig(
         level=RandomnessLevel.MEDIUM,
@@ -147,7 +147,7 @@ RANDOMNESS_CONFIGS: Dict[RandomnessLevel, RandomnessConfig] = {
         residual_volatility=0.27,  # Reduced 10% from 0.30
         residual_transaction_multiplier=1.08,  # Reduced 10% from 1.2
         predictable_expense_pct=0.70,  # 70% predictable
-        flag_corruption_rate=0.15,
+        flag_corruption_rate=0.05,  # Reduced from 15% to 5%
     ),
     RandomnessLevel.HIGH: RandomnessConfig(
         level=RandomnessLevel.HIGH,
@@ -155,7 +155,7 @@ RANDOMNESS_CONFIGS: Dict[RandomnessLevel, RandomnessConfig] = {
         residual_volatility=0.45,  # Reduced 10% from 0.50
         residual_transaction_multiplier=1.35,  # Reduced 10% from 1.5
         predictable_expense_pct=0.60,  # 60% predictable
-        flag_corruption_rate=0.30,
+        flag_corruption_rate=0.10,  # Reduced from 30% to 10%
     ),
 }
 

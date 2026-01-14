@@ -407,13 +407,10 @@ def _generate_income_transactions(
         ))
 
     elif account_cfg.account_type == AccountType.SME:
-        # Customer payments with seasonal variation
+        # Customer payments - FIXED amounts for stable decomposition
+        # No seasonal variation to ensure predictable recurring income
         n_payments = account_cfg.income_sources
-        base_per_payment = account_cfg.monthly_income / n_payments
-
-        # Apply seasonal multiplier to total monthly income
-        seasonal_income = account_cfg.monthly_income * seasonal_multiplier
-        per_payment = seasonal_income / n_payments
+        per_payment = account_cfg.monthly_income / n_payments
 
         for i in range(n_payments):
             # Fixed days based on customer index
@@ -430,10 +427,10 @@ def _generate_income_transactions(
             ))
 
     else:  # Corporate
-        # Daily settlements with seasonal variation
+        # Daily settlements - FIXED amounts for stable decomposition
+        # No seasonal variation to ensure predictable recurring income
         n_days = 20
-        seasonal_income = account_cfg.monthly_income * seasonal_multiplier
-        per_day = seasonal_income / n_days
+        per_day = account_cfg.monthly_income / n_days
 
         for i in range(n_days):
             pay_day = 1 + int(i * 28 / n_days)
@@ -505,15 +502,9 @@ def _generate_recurring_expenses(
         # Fixed date - no jitter for recurring
         pay_date = _safe_date(month_start.year, month_start.month, template.day_of_month)
 
-        # Base amount from template
+        # Base amount from template - FIXED amount, no variation for recurring
+        # This ensures decomposition produces stable deterministic base
         amount = template.base_amount
-
-        # Apply variation based on predictable_expense_pct
-        # If random() > predictable_pct, this expense is NOT fully predictable
-        if np.random.random() > random_cfg.predictable_expense_pct:
-            # Apply ±10% variation to this expense
-            variation = np.random.normal(0, 0.10)
-            amount = amount * (1 + variation)
 
         transactions.append(_create_transaction(
             tx_date=pay_date,
@@ -560,28 +551,30 @@ def _generate_variable_expenses(
         ]
         base_max_transactions = 12
     elif account_cfg.account_type == AccountType.SME:
-        # Fixed: ~19000, Variable: ~1200 -> Predictable ~94%
-        base_budget = 1200
+        # Fixed: ~19000, Variable: ~800 -> Predictable ~96%
+        # Reduced budget and tighter amount ranges for stability
+        base_budget = 800
         categories = [
-            ("SUPPLIES", 0.35, 50, 250),
-            ("TRAVEL", 0.15, 100, 400),
-            ("MARKETING", 0.20, 100, 500),
-            ("EQUIPMENT", 0.15, 50, 350),
-            ("PROFESSIONAL_SERVICES", 0.15, 100, 400),
+            ("SUPPLIES", 0.35, 40, 150),
+            ("TRAVEL", 0.15, 80, 250),
+            ("MARKETING", 0.20, 80, 300),
+            ("EQUIPMENT", 0.15, 40, 200),
+            ("PROFESSIONAL_SERVICES", 0.15, 80, 250),
         ]
-        base_max_transactions = 15
+        base_max_transactions = 10
     else:  # Corporate
-        # Fixed: ~445000, Variable: ~12000 -> Predictable ~97%
-        base_budget = 12000
+        # Fixed: ~445000, Variable: ~8000 -> Predictable ~98%
+        # Reduced budget and tighter amount ranges for stability
+        base_budget = 8000
         categories = [
-            ("SUPPLIES", 0.25, 500, 2500),
-            ("TRAVEL", 0.15, 500, 2000),
-            ("MARKETING", 0.20, 1000, 4000),
-            ("EQUIPMENT", 0.15, 500, 2500),
-            ("CAPITAL_EXPENSE", 0.10, 1000, 6000),
-            ("PROFESSIONAL_SERVICES", 0.15, 1000, 4000),
+            ("SUPPLIES", 0.25, 400, 1500),
+            ("TRAVEL", 0.15, 400, 1200),
+            ("MARKETING", 0.20, 800, 2500),
+            ("EQUIPMENT", 0.15, 400, 1500),
+            ("CAPITAL_EXPENSE", 0.10, 800, 4000),
+            ("PROFESSIONAL_SERVICES", 0.15, 800, 2500),
         ]
-        base_max_transactions = 25
+        base_max_transactions = 20
 
     # Apply seasonal expense multiplier based on month
     month_num = month_start.month
