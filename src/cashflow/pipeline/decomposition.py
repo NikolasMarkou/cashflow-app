@@ -89,13 +89,169 @@ def decompose_cashflow(
     return df
 
 
+# Minimum recurring value ratio to consider flags reliable
+MIN_RECURRING_VALUE_RATIO = 0.15  # 15% of absolute value should be recurring
+# Maximum coefficient of variation for recurring transactions to be considered reliable
+MAX_RECURRING_CV = 0.50  # 50% CV threshold - higher means more variance = potentially corrupted
+
+
+def _calculate_recurring_stability(tx_df: pd.DataFrame, recurring_mask: pd.Series) -> float:
+    """Calculate stability score for transactions marked as recurring.
+
+    Truly recurring transactions should produce consistent monthly totals.
+    High month-to-month variance indicates corrupted flags (wrong transactions
+    marked as recurring).
+
+    Returns:
+        Stability score (0-1, higher = more stable monthly totals)
+    """
+    recurring_tx = tx_df[recurring_mask].copy()
+
+    if len(recurring_tx) < 3:
+        return 1.0  # Not enough data to assess
+
+    # Ensure month_key exists
+    if "month_key" not in recurring_tx.columns:
+        if "tx_date" in recurring_tx.columns:
+            recurring_tx["month_key"] = pd.to_datetime(recurring_tx["tx_date"]).dt.strftime("%Y-%m")
+        else:
+            return 1.0  # Can't compute monthly stability
+
+    # Calculate monthly totals (this is what becomes deterministic_base)
+    monthly_totals = recurring_tx.groupby("month_key")["amount"].sum()
+
+    if len(monthly_totals) < 3:
+        return 1.0  # Not enough months to assess
+
+    # Calculate coefficient of variation of monthly totals
+    mean_total = monthly_totals.mean()
+    if mean_total == 0:
+        return 1.0
+
+    cv = abs(monthly_totals.std() / mean_total)
+
+    # Convert CV to stability score
+    # CV < 0.3 = very stable (stability ~0.85)
+    # CV = 0.5 = moderate (stability ~0.75)
+    # CV > 1.0 = unstable (stability < 0.5)
+    stability = max(0.0, 1.0 - cv / 2)
+
+    return stability
+
+
+def _select_recurring_mask(tx_df: pd.DataFrame) -> pd.Series:
+    """Select the best recurring mask using smart fallback logic.
+
+    Strategy:
+    1. If is_recurring_flag has reasonable coverage (>15% of value) AND is stable, use it
+    2. If original flags appear corrupted (high variance) AND discovered is better, use discovered
+    3. If coverage is too low AND is_recurring_discovered exists with better coverage, use that
+    4. Otherwise, use is_recurring_flag (even if low coverage)
+
+    This handles:
+    - Clean data with accurate flags → uses is_recurring_flag (e.g., PoC dataset)
+    - Corrupted flags (wrong transactions marked) → falls back to is_recurring_discovered
+    - Missing flags → falls back to is_recurring_discovered
+
+    Args:
+        tx_df: Transaction DataFrame
+
+    Returns:
+        Boolean Series indicating which transactions are recurring
+    """
+    # Get the original flag
+    original_flag = tx_df.get("is_recurring_flag", pd.Series(False, index=tx_df.index))
+    if original_flag.dtype == object:
+        original_flag = original_flag.fillna(False).astype(bool)
+    else:
+        original_flag = original_flag.fillna(False)
+
+    # Calculate coverage of original flag (by absolute value)
+    total_abs_value = tx_df["amount"].abs().sum()
+    if total_abs_value == 0:
+        return original_flag
+
+    original_recurring_value = tx_df.loc[original_flag, "amount"].abs().sum()
+    original_coverage = original_recurring_value / total_abs_value
+
+    # Check if discovered recurrence is available
+    has_discovered = "is_recurring_discovered" in tx_df.columns
+
+    if not has_discovered:
+        # No alternative, use original flag
+        logger.debug(f"Using is_recurring_flag (coverage: {original_coverage:.1%})")
+        return original_flag
+
+    # Get discovered flag
+    discovered_flag = tx_df["is_recurring_discovered"].fillna(False)
+    if discovered_flag.dtype == object:
+        discovered_flag = discovered_flag.astype(bool)
+
+    discovered_recurring_value = tx_df.loc[discovered_flag, "amount"].abs().sum()
+    discovered_coverage = discovered_recurring_value / total_abs_value
+
+    # Calculate stability scores for both
+    original_stability = _calculate_recurring_stability(tx_df, original_flag)
+    discovered_stability = _calculate_recurring_stability(tx_df, discovered_flag)
+
+    logger.debug(
+        f"Recurring mask comparison - Original: coverage={original_coverage:.1%}, "
+        f"stability={original_stability:.2f}; Discovered: coverage={discovered_coverage:.1%}, "
+        f"stability={discovered_stability:.2f}"
+    )
+
+    # Decision logic with stability check
+    if original_coverage >= MIN_RECURRING_VALUE_RATIO:
+        # Check if original flags are stable (not corrupted)
+        if original_stability >= 0.5:  # Stability threshold
+            logger.debug(
+                f"Using is_recurring_flag (coverage: {original_coverage:.1%}, "
+                f"stability: {original_stability:.2f})"
+            )
+            return original_flag
+        elif discovered_stability > original_stability:
+            # Original has coverage but appears corrupted, discovered is more stable
+            logger.info(
+                f"Falling back to is_recurring_discovered: original has coverage "
+                f"({original_coverage:.1%}) but low stability ({original_stability:.2f}), "
+                f"discovered more stable ({discovered_stability:.2f})"
+            )
+            return discovered_flag
+        else:
+            # Neither is great, use original
+            logger.debug(
+                f"Using is_recurring_flag (both have similar stability, "
+                f"original: {original_stability:.2f}, discovered: {discovered_stability:.2f})"
+            )
+            return original_flag
+    elif discovered_coverage > original_coverage * 1.5:
+        # Original flags look corrupted, discovered has significantly better coverage
+        logger.info(
+            f"Falling back to is_recurring_discovered: original coverage {original_coverage:.1%} "
+            f"below threshold, discovered coverage {discovered_coverage:.1%}"
+        )
+        return discovered_flag
+    else:
+        # Neither is great, but original is not much worse - trust original
+        logger.debug(
+            f"Using is_recurring_flag (coverage: {original_coverage:.1%}, "
+            f"discovered not significantly better: {discovered_coverage:.1%})"
+        )
+        return original_flag
+
+
 def _decompose_from_transactions(
     monthly_df: pd.DataFrame,
     transactions_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Decompose using transaction-level recurring flags.
+    """Decompose using transaction-level recurring flags with smart fallback.
 
-    Uses is_recurring_flag to separate deterministic from residual.
+    Uses is_recurring_flag when reliable, falls back to is_recurring_discovered
+    when flags appear corrupted (e.g., very low recurring rate).
+
+    Reliability heuristic:
+    - If < 15% of absolute transaction value is marked recurring, flags may be corrupted
+    - In that case, use is_recurring_discovered if available and has better coverage
     """
     df = monthly_df.copy()
     tx_df = transactions_df.copy()
@@ -109,8 +265,8 @@ def _decompose_from_transactions(
     if "customer_id" in tx_df.columns and "customer_id" in df.columns:
         group_cols = ["customer_id", "month_key"]
 
-    # Separate recurring (deterministic) and non-recurring (residual)
-    recurring_mask = tx_df.get("is_recurring_flag", pd.Series(False, index=tx_df.index))
+    # Smart fallback: choose between is_recurring_flag and is_recurring_discovered
+    recurring_mask = _select_recurring_mask(tx_df)
 
     # Aggregate deterministic (recurring transactions)
     recurring_agg = (

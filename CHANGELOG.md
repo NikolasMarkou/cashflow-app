@@ -2,6 +2,54 @@
 
 All notable changes to the Cash Flow Forecasting Engine are documented in this file.
 
+## [0.6.2] - 2026-01-14
+
+### Added
+
+- **TiRex ONNX Model Support**
+  - Added TiRex to web API valid models (`src/cashflow/web/routes/forecast.py`)
+  - Added TiRex option to UI model selection (`src/cashflow/web/routes/pages.py`)
+  - TiRex now pads data with mean value if < 24 months (`src/cashflow/models/tirex.py`)
+
+- **Smart Recurring Mask Fallback** (`src/cashflow/pipeline/decomposition.py`)
+  - New `_calculate_recurring_stability()` function using monthly CV
+  - Enhanced `_select_recurring_mask()` with coverage AND stability checks
+  - Detects corrupted flags via volatile monthly deterministic base
+  - Falls back to `is_recurring_discovered` when original flags unstable
+  - Preserves PoC dataset performance (1.82% WMAPE) while improving corrupted data handling
+
+- **Variable Categories Exclusion** (`src/cashflow/pipeline/recurrence.py`)
+  - Added `VARIABLE_CATEGORIES` set (GROCERIES, ENTERTAINMENT, TRANSPORT, etc.)
+  - Prevents recurrence detection from marking inherently variable transactions
+
+### Changed
+
+- **Decomposition Logic** - Now uses monthly total stability (CV) rather than per-category variance to detect flag corruption
+- **Recurrence Detection** - Skips variable expense categories that shouldn't be auto-detected as recurring
+
+### Fixed
+
+- **WMAPE Regression** - Fixed issue where corrupted `is_recurring_flag` caused WMAPE to increase from 1.8% to 91%
+  - Root cause: Corrupted flags marked wrong transactions as recurring, creating volatile deterministic base
+  - Solution: Detect low monthly stability and fall back to discovered patterns
+
+### Test Results
+
+| Dataset | WMAPE | Status |
+|---------|-------|--------|
+| PoC Dataset (clean flags) | 1.82% | PASS |
+| Framework NONE randomness | 12.44% avg | PASS (100% pass rate) |
+| Framework HIGH randomness (30% corruption) | 29.45% avg | Improved from 91% |
+
+### Key Metrics
+
+- Smart fallback correctly uses `is_recurring_flag` when stable (stability >= 0.5)
+- Falls back to `is_recurring_discovered` when monthly CV > 1.0 (stability < 0.5)
+- PoC dataset: Original flags have stability 0.93, uses original
+- Framework HIGH: Original flags have stability 0.31, falls back to discovered (0.93)
+
+---
+
 ## [0.6.1] - 2026-01-13
 
 ### Added

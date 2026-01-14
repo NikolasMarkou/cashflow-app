@@ -138,7 +138,7 @@ async def run_forecast(
             utf_df = utf_df.rename(columns={old_name: new_name})
 
     # Validate models_to_evaluate
-    valid_models = {"ets", "sarima", "sarimax"}
+    valid_models = {"ets", "sarima", "sarimax", "tirex"}
     models_to_evaluate = [m.lower() for m in models_to_evaluate]
     invalid_models = set(models_to_evaluate) - valid_models
     if invalid_models:

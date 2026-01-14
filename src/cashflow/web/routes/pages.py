@@ -38,6 +38,7 @@ async def index(request: Request) -> HTMLResponse:
                 {"value": "ets", "label": "ETS (Holt-Winters)", "default": True},
                 {"value": "sarima", "label": "SARIMA", "default": True},
                 {"value": "sarimax", "label": "SARIMAX (with exogenous)", "default": False},
+                {"value": "tirex", "label": "TiRex (ONNX)", "default": False},
             ],
             "confidence_levels": [
                 {"value": "0.90", "label": "90%"},

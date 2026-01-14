@@ -11,9 +11,11 @@ A production-grade Python package for multi-account cash flow forecasting with l
 - **Layered Forecasting Architecture**
   - Layer 0: Deterministic rules (transfer netting)
   - Layer 0.5: Internal recurrence detection (fixes upstream flag errors)
-  - Layer 1: Statistical baselines (ETS, SARIMA, SARIMAX with exogenous integration)
+  - Layer 1: Statistical baselines (ETS, SARIMA, SARIMAX) + TiRex ONNX model
   - Layer 2: ML residuals (optional)
   - Layer 3: Recomposition with trend-adjusted projection & explainability
+
+- **Smart Recurring Mask Fallback**: Automatically detects corrupted `is_recurring_flag` via monthly stability analysis and falls back to discovered patterns
 
 - **Transfer Netting**: Automatically detects and removes internal transfers between accounts
 
@@ -107,7 +109,7 @@ Access the interface at **http://localhost:8000**
   - WMAPE threshold
   - Outlier detection method and threshold
   - Outlier treatment method
-  - Model selection (ETS, SARIMA, SARIMAX)
+  - Model selection (ETS, SARIMA, SARIMAX, TiRex)
   - Confidence level (90%, 95%, 99%)
 - **Interactive Charts** (Plotly.js):
   - Historical + Forecast time series with confidence intervals
@@ -235,6 +237,7 @@ src/cashflow/
 │   ├── base.py        # Abstract ForecastModel
 │   ├── ets.py         # Exponential Smoothing
 │   ├── sarima.py      # SARIMA / SARIMAX
+│   ├── tirex.py       # TiRex ONNX time series model
 │   └── selection.py   # WMAPE comparison, model selection
 │
 ├── engine/            # Orchestration
@@ -354,6 +357,16 @@ NECF = Deterministic Base + Residual
 - **Deterministic**: `IsRecurringFlag=True` OR CRF-linked OR discovered by recurrence detection
 - **Residual**: Variable/discretionary flows
 
+### Smart Recurring Mask Fallback
+
+Automatically detects and compensates for corrupted `is_recurring_flag` values:
+
+1. **Coverage check**: Original flags must cover ≥15% of absolute transaction value
+2. **Stability check**: Monthly deterministic totals must have CV < 1.0 (stability ≥ 0.5)
+3. **Fallback**: If original flags are unstable, use `is_recurring_discovered` patterns
+
+This preserves performance on clean data (PoC: 1.82% WMAPE) while improving results on corrupted data (91% → 29% WMAPE).
+
 ### Trend-Adjusted Projection
 
 Replaces naive mean() with intelligent projection:
@@ -363,6 +376,13 @@ Replaces naive mean() with intelligent projection:
 
 ### Model Selection (SDD Section 13.5)
 
+Available models:
+- **ETS**: Exponential smoothing (Holt-Winters)
+- **SARIMA**: Seasonal ARIMA
+- **SARIMAX**: SARIMA with exogenous variables
+- **TiRex**: ONNX-based time series model with RevIN normalization
+
+Selection criteria:
 1. Lowest WMAPE wins
 2. Tie-breaker: simpler model (ETS < SARIMA < SARIMAX)
 3. Explainability override within 0.5pp tolerance

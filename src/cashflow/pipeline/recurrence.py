@@ -106,9 +106,21 @@ def _detect_by_category(
     if "category" not in df.columns:
         return patterns
 
+    # Categories that are inherently variable and should NOT be auto-detected as recurring
+    # Even if they occur regularly, their amounts are unpredictable
+    VARIABLE_CATEGORIES = {
+        "GROCERIES", "ENTERTAINMENT", "TRANSPORT", "DINING", "SHOPPING",
+        "HEALTHCARE", "TRAVEL", "MARKETING", "SUPPLIES", "EQUIPMENT",
+        "CAPITAL_EXPENSE", "PROFESSIONAL_SERVICES", "ONE_TIME_LARGE",
+    }
+
     for category, group in df.groupby("category"):
         # Skip transfer categories (already handled)
         if str(category).upper() in {"TRANSFER_IN", "TRANSFER_OUT", "INTERNAL_TRANSFER"}:
+            continue
+
+        # Skip variable/discretionary categories - they are not truly recurring
+        if str(category).upper() in VARIABLE_CATEGORIES:
             continue
 
         # Aggregate by month
