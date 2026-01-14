@@ -3,7 +3,7 @@
 ## 1. Executive Summary
 
 **Project:** Cash Flow Forecasting Predictive Engine
-**Version:** v0.5.0
+**Version:** v0.6.4
 **Specification:** SDD v0.05
 
 ### Key Results
@@ -11,11 +11,17 @@
 | Metric | Value |
 |--------|-------|
 | Overall Pass Rate | 89.2% (107/120 test runs) |
-| Average WMAPE | 10.2% |
+| Average WMAPE | 7.3% |
 | Acceptance Threshold | WMAPE < 20% |
 | Models Available | ETS, SARIMA, SARIMAX, TiRex |
 
 The forecasting engine achieves the required WMAPE < 20% threshold across most test configurations, with particularly strong performance on SME and Corporate account types.
+
+### Recent Fixes (v0.6.4)
+
+- **SARIMAX Double Counting:** Fixed critical issue where `known_delta` was counted twice when SARIMAX used exogenous variables
+- **Data Leakage:** Changed `center=True` to `center=False` in rolling operations to prevent future data from influencing historical calculations
+- **Robust Trend Calculation:** Enhanced level shift detection and added stability checks to prevent misinterpreting step changes as persistent trends
 
 ---
 
@@ -76,23 +82,23 @@ Results from `results/wmape_summary.csv` (10 seeds per configuration):
 
 | Account Type | Randomness | WMAPE 3M | WMAPE 6M | WMAPE 12M | Pass Rate | Model |
 |--------------|------------|----------|----------|-----------|-----------|-------|
-| Personal | None | 10.64% | 7.12% | 6.92% | 90% | TiRex |
-| Personal | Low | 11.32% | 9.23% | 9.32% | 100% | TiRex |
-| Personal | Medium | 12.01% | 11.86% | 14.66% | 80% | TiRex |
-| Personal | High | 21.85% | 18.58% | 18.48% | 40% | TiRex |
-| SME | None | 2.63% | 2.77% | 4.02% | 100% | TiRex |
-| SME | Low | 2.70% | 2.75% | 3.98% | 100% | TiRex |
-| SME | Medium | 4.61% | 4.67% | 6.60% | 100% | TiRex |
-| SME | High | 5.54% | 5.91% | 6.98% | 70% | TiRex |
+| Personal | None | 11.68% | 6.77% | 5.84% | 90% | TiRex |
+| Personal | Low | 10.96% | 6.86% | 5.86% | 100% | TiRex |
+| Personal | Medium | 12.22% | 7.28% | 6.41% | 80% | TiRex |
+| Personal | High | 16.06% | 10.55% | 10.47% | 40% | TiRex |
+| SME | None | 2.52% | 2.51% | 3.97% | 100% | TiRex |
+| SME | Low | 2.73% | 2.70% | 4.11% | 100% | TiRex |
+| SME | Medium | 4.25% | 4.07% | 5.29% | 100% | TiRex |
+| SME | High | 4.50% | 4.53% | 5.65% | 70% | TiRex |
 | Corporate | None | 5.53% | 6.71% | 10.72% | 100% | TiRex |
-| Corporate | Low | 5.05% | 6.29% | 10.85% | 100% | TiRex |
-| Corporate | Medium | 6.48% | 8.21% | 13.53% | 100% | TiRex |
-| Corporate | High | 7.67% | 9.91% | 16.48% | 90% | TiRex |
+| Corporate | Low | 4.78% | 5.20% | 7.99% | 100% | TiRex |
+| Corporate | Medium | 5.48% | 6.54% | 10.25% | 100% | TiRex |
+| Corporate | High | 6.26% | 7.27% | 11.49% | 90% | TiRex |
 
 ### Performance Highlights
 
-- **Best Performance:** SME accounts with None/Low randomness (2.6-4.0% WMAPE)
-- **Most Consistent:** Corporate accounts maintain <17% WMAPE even at High randomness
+- **Best Performance:** SME accounts with None/Low randomness (2.5-4.1% WMAPE)
+- **Most Consistent:** Corporate accounts maintain <12% WMAPE even at High randomness
 - **Most Challenging:** Personal accounts at High randomness (40% pass rate)
 - **Model Selection:** TiRex selected 100% of the time, outperforming ETS and SARIMA
 
@@ -435,6 +441,29 @@ Replaces naive mean() with intelligent projection:
 
 Fixes the "Mean Fallacy" where naive averaging fails on lifestyle changes.
 
+### 6.5 Robust Trend Calculation (v0.6.4)
+
+Enhanced trend calculation with stability checks:
+
+- **Minimum data points:** Requires at least 4 post-shift months for reliable trend estimation
+- **Stability check:** Uses coefficient of variation (CV) threshold of 0.5; returns flat projection if data too volatile
+- **Spurious trend filter:** Ignores slopes less than 1% of mean value
+- **Level shift detection:** Detects all significant shifts (not just recent half), selects most recent with sufficient post-shift data
+
+Prevents misinterpreting one-time step changes (contract endings) as persistent trends.
+
+### 6.6 Recomposition Formula
+
+The final forecast is computed as:
+
+```
+Forecast_Total = Forecast_Residual + Deterministic_Base + Known_Future_Delta
+```
+
+- **Forecast_Residual:** Model output (ETS, SARIMA, or TiRex)
+- **Deterministic_Base:** Trend-adjusted projection of recurring flows
+- **Known_Future_Delta:** Contract endings from CRF (handled arithmetically, not via SARIMAX exogenous)
+
 ---
 
 ## 7. Key Files Reference
@@ -487,22 +516,22 @@ Fixes the "Mean Fallacy" where naive averaging fails on lifestyle changes.
 ### Performance by Account Type
 
 **SME Accounts (Best Performance)**
-- WMAPE range: 2.6% - 7.0%
+- WMAPE range: 2.5% - 5.7%
 - Pass rate: 70-100%
 - Characteristics: Multiple predictable revenue streams, stable operational expenses
 - Strong performance even at High randomness
 
 **Corporate Accounts (Consistent Performance)**
-- WMAPE range: 5.5% - 16.5%
+- WMAPE range: 5.5% - 11.5%
 - Pass rate: 90-100%
 - Characteristics: High volume smooths variations, predictable large obligations
-- Maintains <17% WMAPE across all randomness levels
+- Maintains <12% WMAPE across all randomness levels
 
 **Personal Accounts (Most Variable)**
-- WMAPE range: 6.9% - 18.5%
+- WMAPE range: 5.8% - 10.5%
 - Pass rate: 40-100%
 - Characteristics: Single income source, high discretionary spending variance
-- Performance degrades significantly at High randomness
+- Performance degrades at High randomness but still averages ~10% WMAPE
 
 ### Model Selection
 
