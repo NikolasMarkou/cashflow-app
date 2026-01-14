@@ -256,6 +256,19 @@ class ForecastEngine:
                 future_exog=future_exog,
             )
 
+        # Evaluate TiRex ONNX model if available
+        if "tirex" in self.config.models_to_evaluate:
+            try:
+                from cashflow.models.tirex import TiRexModel
+                self._model_selector.evaluate_model(
+                    model=TiRexModel(),
+                    train_series=train,
+                    test_series=test,
+                    forecast_steps=self.config.forecast_horizon,
+                )
+            except (FileNotFoundError, RuntimeError) as e:
+                logger.warning(f"TiRex model unavailable: {e}")
+
         winner = self._model_selector.select_winner()
         summary = self._model_selector.get_summary()
 

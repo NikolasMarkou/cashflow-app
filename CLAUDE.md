@@ -11,11 +11,26 @@ Cash Flow Forecasting Predictive Engine - a production-grade Python package for 
 - 95% confidence intervals on all forecasts
 - Python 3.8+ compatible
 
+## Virtual Environment Setup
+
+**Always activate the virtual environment before running any commands:**
+
+```bash
+# Activate virtual environment
+source .venv/bin/activate
+
+# First-time setup (creates venv and installs dependencies)
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e ".[dev,viz]"
+```
+
 ## Quick Commands
 
 ```bash
-# Development setup
-pip install -e ".[dev,viz]"
+# Activate venv first!
+source .venv/bin/activate
 
 # Run tests
 pytest tests/ -v
@@ -32,8 +47,11 @@ ruff check src/
 # Run CLI forecast
 cashflow forecast --utf data/utf.csv --output ./output
 
-# Generate visualization plots
-python scripts/generate_all_plots.py
+# Run framework tests (full suite - 120 runs)
+python scripts/run_framework_tests.py
+
+# Run framework tests (quick validation - 36 runs)
+python scripts/run_framework_tests.py --quick
 ```
 
 ## Repository Structure
@@ -173,41 +191,60 @@ Tests are in `tests/` using pytest. Key test files:
 
 Run specific test: `pytest tests/test_engine.py -v`
 
-## Visualization Scripts
+## Testing Framework
 
-Located in `scripts/`, generate plots to `plots/`:
-- `visualize_forecast.py` - Time series, components, model comparison (uses real UTF data)
-- `visualize_scenarios.py` - Confidence interval fan chart, model performance
-- `visualize_decomposition.py` - Decomposition panels, outlier analysis
-- `generate_all_plots.py` - Run all visualizations
-- `analyze_noise_sensitivity.py` - Noise sensitivity analysis with synthetic data
+See `docs/2026_01_13_framework.md` for the authoritative testing specification.
 
-### Noise Sensitivity Analysis
+### Scripts
 
-Evaluates model robustness under increasing data noise levels:
+Located in `scripts/`:
+- `framework_config.py` - Configuration dataclasses for account types and randomness levels
+- `data_generator.py` - Synthetic transaction data generation
+- `run_framework_tests.py` - Main test execution script
+
+### Running Tests
 
 ```bash
-python3 scripts/analyze_noise_sensitivity.py
+# Activate venv first
+source .venv/bin/activate
+
+# Full test suite (120 runs: 3 account types x 4 randomness levels x 10 seeds)
+python scripts/run_framework_tests.py
+
+# Quick validation (36 runs: 3 seeds per config)
+python scripts/run_framework_tests.py --quick
+
+# Filter by account type
+python scripts/run_framework_tests.py --account-type personal
+
+# Filter by randomness level
+python scripts/run_framework_tests.py --randomness low
 ```
 
-**Noise Levels** (with flag corruption and salary raises to test improvements):
-- Baseline (No Noise): Clean synthetic data, 0% flag corruption
-- Very Low Noise: salary_std=25, 10% flag corruption
-- Low Noise: salary_std=50, 20% flag corruption + salary raise at month 12
-- Moderate Noise: salary_std=100, 30% flag corruption + salary raise
-- High Noise: salary_std=200, 40% flag corruption + salary raise
+### Account Types
+- **Personal**: EUR 3K monthly income, single salary, consumer spending patterns
+- **SME**: EUR 25K monthly revenue, multiple customers, business operations
+- **Corporate**: EUR 500K monthly revenue, diversified enterprise patterns
 
-**Output** (`plots/noise_analysis/`):
-- `wmape_vs_noise.png` - WMAPE distribution across noise levels
-- `forecast_trajectories.png` - Stacked subplots with historical + forecast per noise level
-- `ci_width_vs_noise.png` - Confidence interval width comparison
-- `outlier_detection.png` - Outlier counts by noise level
-- `threshold_pass_rate.png` - Pass rate (WMAPE < 20%) by noise level
-- `summary_table.csv` / `summary_table.png` - Aggregate metrics
+### Randomness Levels
+- **None**: Perfectly predictable baseline (0% variation)
+- **Low**: Minor natural variation (2-5% CV, 5% flag corruption)
+- **Medium**: Realistic business conditions (5-15% CV, 15% flag corruption)
+- **High**: Stressed/volatile conditions (10-30% CV, 30% flag corruption)
 
-Uses 30 random seeds per noise level for statistical robustness.
+### Output
 
-**Key Finding:** Recurrence detection compensates for corrupted flags - with 10% flag corruption, pass rate improved from 40% to 73%.
+Results saved to `results/`:
+- `wmape_results.csv` - Detailed results per run (120 rows)
+- `wmape_summary.csv` - Aggregated statistics per configuration (12 rows)
+
+Plots saved to `plots/`:
+- `wmape_by_account_type.png` - WMAPE by account type (grouped by randomness)
+- `wmape_by_randomness.png` - WMAPE by randomness (grouped by account type)
+- `wmape_heatmap.png` - 3x4 heatmap of 12-month WMAPE
+- `wmape_horizon_degradation.png` - WMAPE by forecast month (1-12)
+- `pass_rate_matrix.png` - Pass rate heatmap (WMAPE < 20%)
+- `forecast_trajectories.png` - Sample forecast vs actual plots
 
 ## Important Notes
 

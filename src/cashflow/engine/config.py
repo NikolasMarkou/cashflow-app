@@ -57,7 +57,7 @@ class ForecastConfig(BaseModel):
     # Model settings (SDD Section 13)
     models_to_evaluate: List[str] = Field(
         default=["ets", "sarima"],
-        description="Models to evaluate: ets, sarima, sarimax",
+        description="Models to evaluate: ets, sarima, sarimax, tirex",
     )
     arima_order: Tuple[int, int, int] = Field(
         default=(1, 1, 1),
