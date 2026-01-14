@@ -128,7 +128,8 @@ def _rolling_median_treatment(
     masked[df[is_outlier_col]] = np.nan
 
     # Compute rolling median, interpolating over masked values
-    rolling = masked.rolling(window=window, center=True, min_periods=1).median()
+    # Use center=False to prevent data leakage (no future data in calculation)
+    rolling = masked.rolling(window=window, center=False, min_periods=1).median()
 
     # Fill any remaining NaN with overall median
     overall_median = masked.median()

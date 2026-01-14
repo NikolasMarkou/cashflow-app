@@ -324,13 +324,14 @@ def _decompose_approximate(
 
     # Use rolling median as approximation of deterministic base
     # (Recurring flows are typically stable month-to-month)
+    # Use center=False to prevent data leakage (no future data in calculation)
     if "customer_id" in df.columns:
         df["deterministic_base"] = df.groupby("customer_id")["necf"].transform(
-            lambda x: x.rolling(window=12, min_periods=3, center=True).median()
+            lambda x: x.rolling(window=12, min_periods=3, center=False).median()
         )
     else:
         df["deterministic_base"] = df["necf"].rolling(
-            window=12, min_periods=3, center=True
+            window=12, min_periods=3, center=False
         ).median()
 
     # Fill edge months with overall median
@@ -507,14 +508,23 @@ def compute_deterministic_projection(
     )
 
 
-def _detect_level_shift(values: np.ndarray, threshold: float = 2.0) -> Tuple[int, bool]:
+def _detect_level_shift(
+    values: np.ndarray,
+    threshold: float = 2.0,
+    min_post_shift_points: int = 3,
+) -> Tuple[int, bool]:
     """Detect structural break (level shift) in time series.
 
-    Uses cumulative sum (CUSUM) approach to find sudden jumps.
+    Uses Z-score approach to find sudden jumps. Returns the most recent
+    significant shift that leaves enough data points for trend estimation.
+
+    Enhanced to detect all significant shifts (not just recent half),
+    which helps identify contract-related step changes correctly.
 
     Args:
         values: Time series values
         threshold: Number of standard deviations for shift detection
+        min_post_shift_points: Minimum data points required after shift
 
     Returns:
         Tuple of (shift_index, shift_detected)
@@ -523,8 +533,6 @@ def _detect_level_shift(values: np.ndarray, threshold: float = 2.0) -> Tuple[int
     if n < 6:
         return 0, False
 
-    # Calculate rolling mean and std
-    window = min(6, n // 2)
     diffs = np.diff(values)
 
     # Look for jumps larger than threshold * std
@@ -539,28 +547,57 @@ def _detect_level_shift(values: np.ndarray, threshold: float = 2.0) -> Tuple[int
     if len(shift_candidates) == 0:
         return 0, False
 
-    # Take the most recent significant shift
-    shift_idx = shift_candidates[-1] + 1
+    # Find the most recent shift that leaves enough post-shift data
+    # Iterate from most recent to oldest
+    for candidate in reversed(shift_candidates):
+        shift_idx = candidate + 1
+        post_shift_count = n - shift_idx
 
-    # Only use if shift is in recent half of data
-    if shift_idx >= n // 2:
-        return shift_idx, True
+        # Ensure enough data points after the shift for trend estimation
+        if post_shift_count >= min_post_shift_points:
+            return shift_idx, True
 
     return 0, False
 
 
-def _calculate_trend(values: np.ndarray) -> float:
-    """Calculate linear trend (slope) from values.
+def _calculate_trend(
+    values: np.ndarray,
+    min_points: int = 4,
+    max_cv: float = 0.5,
+) -> float:
+    """Calculate linear trend (slope) from values with stability checks.
+
+    Enhanced with:
+    - Minimum data points requirement for reliable trend estimation
+    - Stability check using coefficient of variation (CV)
+    - Returns 0 (flat) if data is too volatile for trend estimation
+
+    This prevents misinterpreting step changes as persistent trends.
 
     Args:
         values: Time series values
+        min_points: Minimum data points required for trend (default 4)
+        max_cv: Maximum coefficient of variation allowed (default 0.5 = 50%)
 
     Returns:
-        Monthly trend (positive = increasing)
+        Monthly trend (positive = increasing), or 0.0 if unstable
     """
     n = len(values)
     if n < 2:
         return 0.0
+
+    # Require minimum data points for reliable trend
+    if n < min_points:
+        return 0.0
+
+    # Stability check: coefficient of variation
+    # If data is too volatile, trend estimation is unreliable
+    mean_val = np.mean(values)
+    if mean_val != 0:
+        cv = abs(np.std(values) / mean_val)
+        if cv > max_cv:
+            # Data too volatile - return flat projection
+            return 0.0
 
     # Simple linear regression
     x = np.arange(n)
@@ -574,6 +611,11 @@ def _calculate_trend(values: np.ndarray) -> float:
         return 0.0
 
     slope = numerator / denominator
+
+    # Additional check: if slope is very small relative to mean, treat as flat
+    # This prevents noise from creating spurious trends
+    if mean_val != 0 and abs(slope / mean_val) < 0.01:
+        return 0.0
 
     return float(slope)
 

@@ -2,6 +2,66 @@
 
 All notable changes to the Cash Flow Forecasting Engine are documented in this file.
 
+## [0.6.4] - 2026-01-14
+
+### Fixed
+
+- **SARIMAX Double Counting (Critical)** (`src/cashflow/engine/forecast.py`)
+  - Fixed issue where `known_delta` was counted twice when SARIMAX was selected
+  - Previously: SARIMAX learned coefficient β for `known_delta` as exogenous variable, then recomposition added `known_delta` again explicitly
+  - Solution: Disabled exogenous variables in `_build_exog_matrix()`, letting recomposition handle `known_delta` arithmetically
+  - Formula now correctly applies: `Forecast_Total = Forecast_Residual + Deterministic_Base + Known_Delta`
+
+- **Data Leakage in Rolling Operations** (`src/cashflow/outliers/treatment.py`, `src/cashflow/pipeline/decomposition.py`)
+  - Fixed `center=True` usage that caused future data to influence historical calculations
+  - Changed to `center=False` (backward-looking windows) in:
+    - `_rolling_median_treatment()` (treatment.py:131)
+    - `decompose_cashflow_approximation()` (decomposition.py:329, 333)
+  - Prevents data leakage during backtesting and train/test splits
+
+### Changed
+
+- **Enhanced Level Shift Detection** (`src/cashflow/pipeline/decomposition.py:511-560`)
+  - Removed "recent half" restriction that ignored older structural breaks
+  - Now detects all significant level shifts and selects the most recent with sufficient post-shift data
+  - Added `min_post_shift_points` parameter (default 3) for reliable post-shift estimation
+
+- **Robust Trend Calculation** (`src/cashflow/pipeline/decomposition.py:563-618`)
+  - Added minimum data points requirement (`min_points=4`) for reliable trend estimation
+  - Added stability check using coefficient of variation (`max_cv=0.5`)
+  - Returns flat projection (trend=0) when data is too volatile
+  - Added spurious trend filter (ignores slopes < 1% of mean value)
+  - Prevents misinterpreting one-time step changes as persistent trends
+
+### Test Results (120 runs: 3 account types × 4 randomness levels × 10 seeds)
+
+| Account Type | Randomness | WMAPE 12M | Pass Rate |
+|--------------|------------|-----------|-----------|
+| Personal | None | 5.84% | 100% |
+| Personal | Low | 5.86% | 100% |
+| Personal | Medium | 6.41% | 100% |
+| Personal | High | 10.47% | 90% |
+| SME | None | 3.97% | 100% |
+| SME | Low | 4.11% | 100% |
+| SME | Medium | 5.29% | 100% |
+| SME | High | 5.65% | 100% |
+| Corporate | None | 10.72% | 100% |
+| Corporate | Low | 7.99% | 100% |
+| Corporate | Medium | 10.25% | 90% |
+| Corporate | High | 11.49% | 80% |
+
+**Overall: 89.2% pass rate, 7.3% average WMAPE**
+
+### Files Modified
+
+```
+src/cashflow/engine/forecast.py       # Disabled SARIMAX exogenous to fix double-counting
+src/cashflow/pipeline/decomposition.py # Enhanced level shift detection, robust trend calc, center=False
+src/cashflow/outliers/treatment.py    # center=False for backward-looking windows
+```
+
+---
+
 ## [0.6.3] - 2026-01-14
 
 ### Added

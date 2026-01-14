@@ -472,45 +472,26 @@ class ForecastEngine:
     ) -> Optional[pd.DataFrame]:
         """Build exogenous variable matrix for SARIMAX.
 
-        This implements proper exogenous integration so SARIMAX can learn
-        the relationship between contract events and cash flow jumps.
+        DISABLED: Returns None to prevent double-counting of known_delta.
+
+        If SARIMAX uses known_delta as an exogenous variable, the model learns
+        a coefficient beta for it (forecast includes beta * known_delta).
+        The recomposition formula (_recompose_forecast) then adds known_delta
+        explicitly again, causing double-counting.
+
+        The correct approach is to let recomposition handle known_delta
+        arithmetically via:
+            Forecast_Total = Forecast_Residual + Deterministic_Base + Known_Delta
+
+        This keeps the formula explicit, auditable, and avoids model coefficient
+        estimation artifacts.
 
         Args:
-            historical_df: Historical decomposed data
-            crf_df: Optional CRF data with contract information
+            historical_df: Historical decomposed data (unused)
+            crf_df: Optional CRF data (unused)
 
         Returns:
-            DataFrame with exogenous variables indexed by period
+            None - exogenous variables disabled to prevent double-counting
         """
-        if crf_df is None or len(crf_df) == 0:
-            return None
-
-        from cashflow.pipeline.decomposition import compute_known_future_delta
-
-        # Get month range from historical data
-        months = historical_df["month_key"].unique()
-        if len(months) < 2:
-            return None
-
-        start_month = min(months)
-        end_month = max(months)
-
-        # Compute known deltas for historical period
-        delta_df = compute_known_future_delta(crf_df, start_month, end_month)
-
-        if len(delta_df) == 0:
-            return None
-
-        # Create exogenous matrix
-        exog = pd.DataFrame(index=pd.PeriodIndex(months, freq="M"))
-        exog["known_delta"] = 0.0
-
-        # Fill in known deltas
-        for _, row in delta_df.iterrows():
-            period = pd.Period(row["month_key"], freq="M")
-            if period in exog.index:
-                exog.loc[period, "known_delta"] = row["delta_value"]
-
-        logger.info(f"Built exogenous matrix with {(exog['known_delta'] != 0).sum()} non-zero entries")
-
-        return exog
+        # Exogenous variables disabled - known_delta handled in recomposition
+        return None
