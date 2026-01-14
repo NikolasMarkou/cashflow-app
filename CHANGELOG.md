@@ -2,6 +2,55 @@
 
 All notable changes to the Cash Flow Forecasting Engine are documented in this file.
 
+## [0.6.3] - 2026-01-14
+
+### Added
+
+- **Client Handover Document** (`docs/handover.md`)
+  - Comprehensive documentation for client handover
+  - Quick start guide with installation and running instructions
+  - Full test results summary from framework validation
+  - Detailed data generation framework documentation
+  - Account types (Personal, SME, Corporate) with parameters
+  - Randomness levels (None, Low, Medium, High) with configuration
+  - Scripts and commands reference
+  - Methodology explanation (WMAPE, pipeline, smart mask selection)
+  - Key files reference table
+
+### Changed
+
+- **Smart Recurring Mask Selection** (`src/cashflow/pipeline/decomposition.py`)
+  - Now prefers discovered patterns when significantly more stable
+  - Added stability improvement check (>= 0.1 improvement threshold)
+  - Added discovered stability threshold (>= 0.9 for preference)
+  - Improves SME forecasts where original flags had acceptable but suboptimal stability
+
+### Removed
+
+- `docs/2026_01_12_plan_ahead.md` - Superseded by handover document
+- `docs/2026_01_12_response.md` - Superseded by handover document
+
+### Test Results (10 seeds x 12 configurations)
+
+| Account Type | Randomness | WMAPE 12M | Pass Rate |
+|--------------|------------|-----------|-----------|
+| Personal | None | 6.92% | 90% |
+| Personal | Low | 9.32% | 100% |
+| Personal | Medium | 14.66% | 80% |
+| Personal | High | 18.48% | 40% |
+| SME | None | 4.02% | 100% |
+| SME | Low | 3.98% | 100% |
+| SME | Medium | 6.60% | 100% |
+| SME | High | 6.98% | 70% |
+| Corporate | None | 10.72% | 100% |
+| Corporate | Low | 10.85% | 100% |
+| Corporate | Medium | 13.53% | 100% |
+| Corporate | High | 16.48% | 90% |
+
+**Overall: 89.2% pass rate, 10.2% average WMAPE**
+
+---
+
 ## [0.6.2] - 2026-01-14
 
 ### Added

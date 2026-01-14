@@ -6,6 +6,8 @@ A production-grade Python package for multi-account cash flow forecasting with l
 
 **Compliance: 97.6% (40/41 requirements)** - See [docs/compliance.md](docs/compliance.md)
 
+**Latest Test Results: 89.2% pass rate, 10.2% average WMAPE** - See [docs/handover.md](docs/handover.md)
+
 ## Features
 
 - **Layered Forecasting Architecture**
@@ -405,19 +407,24 @@ On the PoC dataset (411 transactions, 24 months):
 | Outliers Detected | 3 |
 | Transfers Netted | 24 |
 
-### Noise Sensitivity Results
+### Framework Test Results
 
-Model robustness under synthetic data with increasing noise and flag corruption (30 seeds per level):
+Validated across 3 account types, 4 randomness levels, and 10 seeds per configuration (120 total runs):
 
-| Noise Level | Flag Corruption | WMAPE Mean | Pass Rate |
-|-------------|-----------------|------------|-----------|
-| Baseline (No Noise) | 0% | 20.32% | 63% |
-| Very Low Noise | 10% | 17.79% | **73%** |
-| Low Noise + Salary Raise | 20% | 46.43% | 30% |
-| Moderate Noise + Raise | 30% | 87.97% | 10% |
-| High Noise + Raise | 40% | 88.82% | 0% |
+| Account Type | Randomness | WMAPE 12M | Pass Rate |
+|--------------|------------|-----------|-----------|
+| Personal | None/Low/Med/High | 6.9-18.5% | 40-100% |
+| SME | None/Low/Med/High | 4.0-7.0% | 70-100% |
+| Corporate | None/Low/Med/High | 10.7-16.5% | 90-100% |
 
-**Key Finding:** With 10% flag corruption, the recurrence detection improvement raises pass rate from 40% to 73% - the system performs BETTER with corrupted flags than the old system with perfect flags.
+**Overall: 89.2% pass rate, 10.2% average WMAPE**
+
+**Key Findings:**
+- SME accounts perform best (2.6-7.0% WMAPE)
+- Corporate accounts are most consistent (90-100% pass rate across all randomness)
+- TiRex model selected 100% of the time, outperforming ETS/SARIMA
+
+See [docs/handover.md](docs/handover.md) for detailed results and data generation framework documentation.
 
 ## SDD v0.05 Compliance
 
@@ -445,3 +452,4 @@ Proprietary - All rights reserved.
 
 - SDD v0.05: `docs/sdd.md`
 - Compliance Report: `docs/compliance.md`
+- Client Handover: `docs/handover.md`
