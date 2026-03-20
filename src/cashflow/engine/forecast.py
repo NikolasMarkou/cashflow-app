@@ -62,6 +62,7 @@ class ForecastEngine:
         self._model_selector: Optional[ModelSelector] = None
         self._recurrence_summary: Optional[dict] = None
         self._deterministic_projection = None
+        self._external_df: Optional[pd.DataFrame] = None
 
     def run(
         self,
@@ -102,6 +103,9 @@ class ForecastEngine:
             logger.info(f"Recurrence discovery: {self._recurrence_summary}")
         else:
             self._recurrence_summary = {"newly_discovered": 0}
+
+        # Store external_df for data quality scoring
+        self._external_df = external_df
 
         # Phase 4: Monthly aggregation
         monthly_df = aggregate_monthly(external_df, customer_id)
@@ -222,9 +226,19 @@ class ForecastEngine:
                 forecast_steps=self.config.forecast_horizon,
             )
 
-        # Note: SARIMAX exogenous variables are intentionally NOT passed here.
-        # The known_delta is handled arithmetically in _recompose_forecast() to
-        # prevent double-counting (model coefficient + explicit addition).
+        # SARIMAX evaluated without exogenous variables — known_delta is handled
+        # arithmetically in _recompose_forecast() to prevent double-counting.
+        if "sarimax" in self.config.models_to_evaluate:
+            from cashflow.models.sarima import SARIMAXModel
+            self._model_selector.evaluate_model(
+                model=SARIMAXModel(
+                    order=self.config.arima_order,
+                    seasonal_order=self.config.seasonal_order,
+                ),
+                train_series=train,
+                test_series=test,
+                forecast_steps=self.config.forecast_horizon,
+            )
 
         # Evaluate TiRex ONNX model if available
         if "tirex" in self.config.models_to_evaluate:
@@ -349,9 +363,12 @@ class ForecastEngine:
         )
 
         # Determine confidence level using actual data quality
+        # Use _external_df (transaction-level data) for quality scoring, not the
+        # monthly decomposed historical_df which lacks columns like tx_id, account_id
         from cashflow.utils import calculate_data_quality_score
 
-        data_quality = calculate_data_quality_score(historical_df)
+        quality_df = self._external_df if self._external_df is not None else historical_df
+        data_quality = calculate_data_quality_score(quality_df)
         confidence = determine_confidence_level(
             data_quality_score=data_quality,
             month_count=len(historical_df),
@@ -377,6 +394,7 @@ class ForecastEngine:
         self,
         utf_df: pd.DataFrame,
         crf_df: Optional[pd.DataFrame] = None,
+        customer_id: Optional[str] = None,
     ) -> ExplainabilityPayload:
         """Run forecast from DataFrames directly (for testing/API use).
 
@@ -407,8 +425,11 @@ class ForecastEngine:
         else:
             self._recurrence_summary = {"newly_discovered": 0}
 
+        # Store external_df for data quality scoring
+        self._external_df = external_df
+
         # Monthly aggregation
-        monthly_df = aggregate_monthly(external_df)
+        monthly_df = aggregate_monthly(external_df, customer_id)
 
         # Decomposition (now uses discovered recurrence)
         decomposed_df = decompose_cashflow(monthly_df, external_df)
