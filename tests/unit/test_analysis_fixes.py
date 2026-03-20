@@ -125,6 +125,11 @@ class TestBUG3_WebNoDuplicatePipeline:
 
     def test_run_forecast_pipeline_uses_engine_once(self):
         """run_forecast_pipeline should call engine.run_from_dataframe, not manual pipeline."""
+        try:
+            import fastapi  # noqa: F401
+        except ImportError:
+            pytest.skip("fastapi not installed")
+
         import inspect
         from cashflow.web.routes.forecast import run_forecast_pipeline
 

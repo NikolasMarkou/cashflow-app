@@ -81,7 +81,7 @@ class ETSModel(ForecastModel):
             self._fitted_model = model.fit(optimized=True)
             self._last_date = series.index[-1]
 
-            logger.info(f"ETS model fitted successfully")
+            logger.info("ETS model fitted successfully")
 
         except Exception as e:
             logger.error(f"ETS fitting failed: {e}")

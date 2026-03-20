@@ -16,11 +16,10 @@ from cashflow.explainability import save_explainability_json
 
 def setup_logging(verbose: bool) -> None:
     """Configure logging based on verbosity."""
-    import sys
-    from loguru import logger
     logger.remove()  # Remove default handler
     level = "DEBUG" if verbose else "INFO"
-    logger.add(sys.stderr, level=level, format="{time:YYYY-MM-DD HH:mm:ss} [{level}] {name}: {message}")
+    fmt = "{time:YYYY-MM-DD HH:mm:ss} [{level}] {name}: {message}"
+    logger.add(sys.stderr, level=level, format=fmt)
 
 
 @click.group()
@@ -188,7 +187,7 @@ def validate(utf: str, verbose: bool):
         # Quality report
         quality = validate_data_quality(cleaned)
 
-        click.echo(f"\nData Quality Report:")
+        click.echo("\nData Quality Report:")
         click.echo(f"  Total rows: {quality['total_rows']}")
         click.echo(f"  Unique customers: {quality['unique_customers']}")
         click.echo(f"  Unique accounts: {quality['unique_accounts']}")
