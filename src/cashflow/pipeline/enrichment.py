@@ -152,25 +152,3 @@ def _apply_amount_precedence(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def compute_historical_median(
-    df: pd.DataFrame,
-    group_cols: list[str] = ["customer_id", "category"],
-) -> pd.DataFrame:
-    """Compute historical median amounts for fallback.
-
-    Used when contractual amount is not available in CRF.
-
-    Args:
-        df: UTF DataFrame
-        group_cols: Columns to group by for median calculation
-
-    Returns:
-        DataFrame with historical_median_amount column added
-    """
-    df = df.copy()
-
-    # Compute median per group
-    medians = df.groupby(group_cols)["amount"].transform("median")
-    df["historical_median_amount"] = medians
-
-    return df

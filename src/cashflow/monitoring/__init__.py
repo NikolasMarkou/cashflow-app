@@ -1,23 +1,9 @@
-"""Monitoring and observability module for production deployment."""
+"""Monitoring module — uses loguru for structured logging."""
 
 from __future__ import annotations
 
-from cashflow.monitoring.logging import (
-    LogConfig,
-    StructuredLogger,
-    configure_logging,
-    get_logger,
-)
-from cashflow.monitoring.metrics import (
-    MetricsCollector,
-    ForecastMetrics,
-)
+from loguru import logger
 
 __all__ = [
-    "LogConfig",
-    "StructuredLogger",
-    "configure_logging",
-    "get_logger",
-    "MetricsCollector",
-    "ForecastMetrics",
+    "logger",
 ]

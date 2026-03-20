@@ -189,16 +189,13 @@ def _check_monitoring() -> ComponentHealth:
     """
     try:
         start = time.perf_counter()
-        from cashflow.monitoring import (
-            StructuredLogger,
-            MetricsCollector,
-        )
+        from loguru import logger  # noqa: F811
 
         latency = (time.perf_counter() - start) * 1000
 
         return ComponentHealth(
             status=HealthStatus.HEALTHY,
-            message="Monitoring available",
+            message="Loguru monitoring available",
             latency_ms=round(latency, 2),
         )
     except ImportError as e:

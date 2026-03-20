@@ -369,46 +369,6 @@ def _validate_decomposition(df: pd.DataFrame, epsilon: float = 0.01) -> None:
         )
 
 
-def get_deterministic_flows(
-    transactions_df: pd.DataFrame,
-) -> pd.DataFrame:
-    """Extract deterministic (recurring) flows from transactions.
-
-    Returns summary of recurring flow patterns for forecasting.
-    """
-    df = transactions_df.copy()
-
-    # Use discovered recurrence if available, otherwise fall back to upstream flag
-    recurring_col = "is_recurring_discovered" if "is_recurring_discovered" in df.columns else "is_recurring_flag"
-
-    if recurring_col not in df.columns:
-        return pd.DataFrame()
-
-    recurring = df[df[recurring_col] == True].copy()
-
-    if len(recurring) == 0:
-        return pd.DataFrame()
-
-    # Group by category to understand recurring patterns
-    summary = (
-        recurring.groupby("category")
-        .agg(
-            avg_amount=("amount", "mean"),
-            median_amount=("amount", "median"),
-            std_amount=("amount", "std"),
-            count=("tx_id", "count") if "tx_id" in recurring.columns else ("amount", "count"),
-            months_active=("month_key", "nunique") if "month_key" in recurring.columns else ("amount", "count"),
-        )
-        .reset_index()
-    )
-
-    # Identify stable recurring flows (low variance)
-    summary["coefficient_of_variation"] = summary["std_amount"].abs() / summary["avg_amount"].abs()
-    summary["is_stable"] = summary["coefficient_of_variation"] < 0.1  # <10% variation
-
-    return summary
-
-
 def compute_deterministic_projection(
     historical_df: pd.DataFrame,
     recency_weight: float = 0.7,
