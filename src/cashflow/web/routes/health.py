@@ -330,5 +330,5 @@ async def readiness_probe(response: Response) -> Dict[str, Any]:
 
     return {
         "ready": is_ready,
-        "checks": {k: v.dict() for k, v in critical_checks.items()},
+        "checks": {k: v.model_dump() for k, v in critical_checks.items()},
     }

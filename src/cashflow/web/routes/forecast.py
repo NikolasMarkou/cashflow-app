@@ -9,14 +9,13 @@ from typing import List, Optional, Tuple
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from cashflow.engine import ForecastConfig
+from cashflow.engine import ForecastConfig, ForecastEngine
 from cashflow.pipeline import (
     clean_utf,
-    enrich_with_crf,
-    detect_transfers,
-    net_transfers,
     aggregate_monthly,
     decompose_cashflow,
+    detect_transfers,
+    net_transfers,
     discover_recurring_patterns,
     apply_discovered_recurrence,
 )
@@ -34,31 +33,42 @@ def run_forecast_pipeline(
     config: ForecastConfig,
     crf_df: Optional[pd.DataFrame] = None,
 ) -> Tuple[ExplainabilityPayload, pd.DataFrame]:
-    """Run forecast pipeline and return both payload and historical data.
-
-    This is a wrapper that gives us access to the historical data for charts
-    while also returning the standard ExplainabilityPayload.
+    """Run forecast pipeline once and return both payload and historical data.
 
     Args:
-        utf_df: UTF DataFrame
+        utf_df: UTF DataFrame (raw, not yet cleaned)
         config: Forecast configuration
         crf_df: Optional CRF DataFrame
 
     Returns:
         Tuple of (ExplainabilityPayload, historical DataFrame)
     """
-    from cashflow.engine import ForecastEngine
+    # Run the engine once — single pipeline execution
+    engine = ForecastEngine(config)
+    payload = engine.run_from_dataframe(utf_df, crf_df)
 
-    # Run pipeline steps manually to capture historical data
+    # Reconstruct historical monthly data from the payload for chart rendering
+    # Build a minimal historical DataFrame from decomposition summary + payload
+    historical_df = _build_historical_df_from_engine(engine, utf_df, config, crf_df)
+
+    return payload, historical_df
+
+
+def _build_historical_df_from_engine(
+    engine: ForecastEngine,
+    utf_df: pd.DataFrame,
+    config: ForecastConfig,
+    crf_df: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """Build historical DataFrame for chart rendering by reusing pipeline steps.
+
+    Runs only the lightweight aggregation steps (no model fitting) to get
+    monthly NECF data with outlier flags for visualization.
+    """
     utf_df = clean_utf(utf_df)
-
-    if crf_df is not None:
-        utf_df = enrich_with_crf(utf_df, crf_df)
-
     utf_df = detect_transfers(utf_df, config.transfer_date_tolerance_days)
     external_df, _ = net_transfers(utf_df)
 
-    # Recurrence detection
     patterns_df = discover_recurring_patterns(external_df)
     if len(patterns_df) > 0:
         external_df = apply_discovered_recurrence(external_df, patterns_df)
@@ -72,12 +82,7 @@ def run_forecast_pipeline(
         detection_threshold=config.outlier_threshold,
         treatment_method=config.outlier_treatment,
     )
-
-    # Now run the full engine to get the payload
-    engine = ForecastEngine(config)
-    payload = engine.run_from_dataframe(utf_df, crf_df)
-
-    return payload, treated_df
+    return treated_df
 
 
 @router.post("/forecast", response_model=ForecastAPIResponse)
