@@ -336,10 +336,11 @@ def apply_discovered_recurrence(
     # Union with original flag (discovered OR upstream flag)
     if "is_recurring_flag" in df.columns:
         original_recurring = df["is_recurring_flag"].fillna(False)
+        # Track source BEFORE union — items only in original get "upstream_flag"
+        mask_upstream_only = original_recurring & ~df["is_recurring_discovered"]
+        df.loc[mask_upstream_only, "recurrence_detection_source"] = "upstream_flag"
+        # Now apply union
         df["is_recurring_discovered"] = df["is_recurring_discovered"] | original_recurring
-        # Track source
-        mask_original = original_recurring & ~df["is_recurring_discovered"]
-        df.loc[mask_original, "recurrence_detection_source"] = "upstream_flag"
 
     discovered_count = df["is_recurring_discovered"].sum()
     original_count = df.get("is_recurring_flag", pd.Series(False)).sum()

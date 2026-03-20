@@ -107,19 +107,19 @@ class ETSModel(ForecastModel):
         # Generate forecast
         forecast = self._fitted_model.forecast(steps)
 
-        # ETS in statsmodels doesn't provide prediction intervals directly
-        # We estimate them from residual standard error
+        # Estimate prediction intervals from residual standard error
+        # Scale by sqrt(step) so intervals widen with forecast horizon
         residuals = self._fitted_model.resid
         std_error = residuals.std()
 
-        # Z-value for confidence level
         from scipy import stats
 
         alpha = 1 - confidence_level
         z = stats.norm.ppf(1 - alpha / 2)
 
-        # Simple confidence intervals (could be improved with proper PI calculation)
-        margin = z * std_error
+        # Horizon-dependent intervals: uncertainty grows with sqrt(step)
+        horizon_scale = np.array([np.sqrt(i + 1) for i in range(steps)])
+        margin = z * std_error * horizon_scale
         lower = forecast - margin
         upper = forecast + margin
 

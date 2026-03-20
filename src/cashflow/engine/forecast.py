@@ -62,7 +62,6 @@ class ForecastEngine:
         self._model_selector: Optional[ModelSelector] = None
         self._recurrence_summary: Optional[dict] = None
         self._deterministic_projection = None
-        self._exog_matrix: Optional[pd.DataFrame] = None
 
     def run(
         self,
@@ -94,6 +93,15 @@ class ForecastEngine:
         # Phase 3: Transfer detection and netting (Layer 0)
         utf_df = detect_transfers(utf_df, self.config.transfer_date_tolerance_days)
         external_df, self._transfer_summary = net_transfers(utf_df)
+
+        # Phase 3.5: Layer 0.5 — Internal recurrence detection
+        patterns_df = discover_recurring_patterns(external_df)
+        if len(patterns_df) > 0:
+            external_df = apply_discovered_recurrence(external_df, patterns_df)
+            self._recurrence_summary = get_recurrence_summary(external_df)
+            logger.info(f"Recurrence discovery: {self._recurrence_summary}")
+        else:
+            self._recurrence_summary = {"newly_discovered": 0}
 
         # Phase 4: Monthly aggregation
         monthly_df = aggregate_monthly(external_df, customer_id)
@@ -170,15 +178,11 @@ class ForecastEngine:
     def _train_and_select_model(
         self,
         df: pd.DataFrame,
-        exog: Optional[pd.DataFrame] = None,
     ) -> tuple:
         """Train models and select the best one.
 
-        Enhanced with exogenous variable support for SARIMAX.
-
         Args:
             df: Historical decomposed data
-            exog: Optional exogenous variables for SARIMAX
 
         Returns:
             Tuple of (forecast_output, model_summary)
@@ -191,28 +195,6 @@ class ForecastEngine:
 
         # Split train/test
         train, test = split_train_test(series, self.config.test_size)
-
-        # Split exog if available
-        train_exog = None
-        test_exog = None
-        future_exog = None
-
-        if exog is not None:
-            # Align exog with series
-            exog_aligned = exog.reindex(series.index).fillna(0.0)
-            train_exog = exog_aligned.loc[train.index]
-            test_exog = exog_aligned.loc[test.index]
-
-            # Build future exog (zeros for now, could be enhanced with CRF)
-            future_index = pd.period_range(
-                start=series.index[-1] + 1,
-                periods=self.config.forecast_horizon,
-                freq="M"
-            )
-            future_exog = pd.DataFrame(
-                {"known_delta": 0.0},
-                index=future_index
-            )
 
         # Initialize model selector
         self._model_selector = ModelSelector(
@@ -240,21 +222,9 @@ class ForecastEngine:
                 forecast_steps=self.config.forecast_horizon,
             )
 
-        # Evaluate SARIMAX with exogenous variables if available
-        if "sarimax" in self.config.models_to_evaluate and exog is not None:
-            from cashflow.models.sarima import SARIMAXModel
-            self._model_selector.evaluate_model(
-                model=SARIMAXModel(
-                    order=self.config.arima_order,
-                    seasonal_order=self.config.seasonal_order,
-                ),
-                train_series=train,
-                test_series=test,
-                forecast_steps=self.config.forecast_horizon,
-                train_exog=train_exog,
-                test_exog=test_exog,
-                future_exog=future_exog,
-            )
+        # Note: SARIMAX exogenous variables are intentionally NOT passed here.
+        # The known_delta is handled arithmetically in _recompose_forecast() to
+        # prevent double-counting (model coefficient + explicit addition).
 
         # Evaluate TiRex ONNX model if available
         if "tirex" in self.config.models_to_evaluate:
@@ -347,9 +317,11 @@ class ForecastEngine:
         model_summary: dict,
     ) -> ExplainabilityPayload:
         """Generate the explainability JSON payload."""
-        # Build model candidates list
+        # Build model candidates list, filtering out failed models (inf WMAPE)
         model_candidates = []
         for result in model_summary.get("all_results", []):
+            if result.get("error") is not None or result["wmape"] == float("inf"):
+                continue
             model_candidates.append(
                 ModelCandidate(
                     model_name=result["model"],
@@ -376,11 +348,12 @@ class ForecastEngine:
             total_volume_removed=round(self._transfer_summary.get("total_volume_removed", 0), 2),
         )
 
-        # Determine confidence level
-        from cashflow.pipeline.cleaning import validate_data_quality
+        # Determine confidence level using actual data quality
+        from cashflow.utils import calculate_data_quality_score
 
+        data_quality = calculate_data_quality_score(historical_df)
         confidence = determine_confidence_level(
-            data_quality_score=95.0,  # Simplified
+            data_quality_score=data_quality,
             month_count=len(historical_df),
             wmape=model_summary.get("winner_wmape", 100),
         )
@@ -450,48 +423,11 @@ class ForecastEngine:
 
         self._record_outliers(treated_df)
 
-        # Build exogenous matrix for SARIMAX (if CRF available)
-        self._exog_matrix = self._build_exog_matrix(treated_df, crf_df)
-
-        # Model selection (with exogenous integration)
-        forecast_output, model_summary = self._train_and_select_model(
-            treated_df,
-            exog=self._exog_matrix,
-        )
+        # Model selection
+        forecast_output, model_summary = self._train_and_select_model(treated_df)
 
         # Recomposition (with trend-adjusted projection)
         forecast_results = self._recompose_forecast(forecast_output, treated_df, crf_df)
 
         # Explainability
         return self._generate_explainability(forecast_results, treated_df, model_summary)
-
-    def _build_exog_matrix(
-        self,
-        historical_df: pd.DataFrame,
-        crf_df: Optional[pd.DataFrame] = None,
-    ) -> Optional[pd.DataFrame]:
-        """Build exogenous variable matrix for SARIMAX.
-
-        DISABLED: Returns None to prevent double-counting of known_delta.
-
-        If SARIMAX uses known_delta as an exogenous variable, the model learns
-        a coefficient beta for it (forecast includes beta * known_delta).
-        The recomposition formula (_recompose_forecast) then adds known_delta
-        explicitly again, causing double-counting.
-
-        The correct approach is to let recomposition handle known_delta
-        arithmetically via:
-            Forecast_Total = Forecast_Residual + Deterministic_Base + Known_Delta
-
-        This keeps the formula explicit, auditable, and avoids model coefficient
-        estimation artifacts.
-
-        Args:
-            historical_df: Historical decomposed data (unused)
-            crf_df: Optional CRF data (unused)
-
-        Returns:
-            None - exogenous variables disabled to prevent double-counting
-        """
-        # Exogenous variables disabled - known_delta handled in recomposition
-        return None

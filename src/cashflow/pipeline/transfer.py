@@ -85,14 +85,30 @@ def _match_by_transfer_link_id(df: pd.DataFrame) -> pd.DataFrame:
 
     # Group by TransferLinkID and mark as transfers if there are pairs
     for link_id, group in df[has_link].groupby("transfer_link_id"):
-        if len(group) >= 2:
-            # Verify it's a valid transfer pair (opposite amounts)
-            amounts = group["amount"].values
-            if len(amounts) == 2 and np.isclose(amounts[0], -amounts[1]):
-                indices = group.index.tolist()
-                df.loc[indices, "is_internal_transfer"] = True
-                df.loc[indices, "transfer_match_id"] = str(link_id)
-                df.loc[indices, "transfer_detection_method"] = "transfer_link_id"
+        if len(group) < 2:
+            continue
+
+        # Match opposite-amount pairs within the group
+        amounts = group["amount"].values
+        indices = group.index.tolist()
+        matched = set()
+
+        for i in range(len(amounts)):
+            if i in matched:
+                continue
+            for j in range(i + 1, len(amounts)):
+                if j in matched:
+                    continue
+                if np.isclose(amounts[i], -amounts[j]):
+                    matched.add(i)
+                    matched.add(j)
+                    break
+
+        if matched:
+            matched_indices = [indices[i] for i in matched]
+            df.loc[matched_indices, "is_internal_transfer"] = True
+            df.loc[matched_indices, "transfer_match_id"] = str(link_id)
+            df.loc[matched_indices, "transfer_detection_method"] = "transfer_link_id"
 
     return df
 

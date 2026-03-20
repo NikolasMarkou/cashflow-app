@@ -1,7 +1,6 @@
 """Forecast engine configuration - SDD operational parameters."""
 
 from __future__ import annotations
-from __future__ import annotations
 
 from typing import List, Tuple
 from pydantic import BaseModel, Field

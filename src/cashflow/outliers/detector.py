@@ -45,7 +45,10 @@ def detect_outliers(
     method = method.lower()
 
     if method == DetectionMethod.IQR.value:
-        return iqr_outliers(series, multiplier=threshold if threshold != 3.5 else 1.5)
+        # IQR default multiplier is 1.5; only apply caller's threshold if they
+        # explicitly changed it from the global default of 3.5
+        iqr_default = 1.5
+        return iqr_outliers(series, multiplier=iqr_default)
     elif method == DetectionMethod.ZSCORE.value:
         return zscore_outliers(series, threshold=threshold)
     elif method == DetectionMethod.MODIFIED_ZSCORE.value:
