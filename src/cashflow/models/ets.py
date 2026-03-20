@@ -43,6 +43,7 @@ class ETSModel(ForecastModel):
         """
         self.trend = trend
         self.seasonal = seasonal
+        self._init_seasonal = seasonal  # Preserve original config for refitting
         self.seasonal_periods = seasonal_periods
         self.damped_trend = damped_trend
         self._fitted_model = None
@@ -60,12 +61,15 @@ class ETSModel(ForecastModel):
         # Prepare series
         series = series.dropna()
 
+        # Reset seasonal to original config before each fit (fixes state mutation bug)
+        self.seasonal = self._init_seasonal
+
         if len(series) < self.seasonal_periods * 2:
             logger.warning(
                 f"Series length ({len(series)}) may be too short for "
                 f"seasonal ETS with period {self.seasonal_periods}"
             )
-            # Fall back to non-seasonal
+            # Fall back to non-seasonal for this fit only
             self.seasonal = None
 
         try:

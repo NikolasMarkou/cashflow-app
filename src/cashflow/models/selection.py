@@ -158,6 +158,9 @@ class ModelSelector:
         self._winner: Optional[ModelResult] = None
         self._fallback_used: bool = False
         self._fallback_reason: Optional[str] = None
+        self._last_train_series: Optional[pd.Series] = None
+        self._last_test_series: Optional[pd.Series] = None
+        self._last_forecast_steps: int = 12
 
     def evaluate_model(
         self,
@@ -183,9 +186,14 @@ class ModelSelector:
         Returns:
             ModelResult with evaluation metrics
         """
+        # Store series for potential fallback use
+        self._last_train_series = train_series
+        self._last_test_series = test_series
+        self._last_forecast_steps = forecast_steps
+
         try:
             # Check if model supports exogenous variables
-            supports_exog = hasattr(model, 'fit') and 'exog' in model.fit.__code__.co_varnames
+            supports_exog = isinstance(model, SARIMAXModel)
 
             # Fit on training data
             if supports_exog and train_exog is not None:
@@ -296,37 +304,19 @@ class ModelSelector:
         """Create a fallback result using naive forecasting.
 
         This is called when all other models have failed.
+        Uses stored train/test series from the last evaluate_model call.
 
         Returns:
             ModelResult with naive forecast
         """
-        # We need training data to create a fallback - get from first result
-        if not self.results:
+        if self._last_train_series is None or self._last_test_series is None:
             raise ValueError("Cannot create fallback without any evaluation attempts")
 
-        # Get the training data from the last evaluation attempt
-        # Note: This requires storing training data during evaluate_model
-        # For now, create a placeholder result
-
-        naive_model = NaiveModel(window=self.fallback_config.naive_window)
-
-        # Create a simple fallback forecast
-        # In production, this would use stored training data
-        fallback_result = ModelResult(
-            model=naive_model,
-            wmape=float("inf"),  # Unknown WMAPE for fallback
-            forecast=None,  # Will be set by caller if needed
-            error=None,
-            is_fallback=True,
+        return self._evaluate_naive_fallback(
+            self._last_train_series,
+            self._last_test_series,
+            self._last_forecast_steps,
         )
-
-        logger.warning(
-            f"Using fallback model: {naive_model.name} "
-            f"(reason: {self._fallback_reason})"
-        )
-
-        self._winner = fallback_result
-        return fallback_result
 
     def evaluate_with_fallback(
         self,
