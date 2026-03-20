@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 from typing import Optional
-import logging
+from loguru import logger
 
 import numpy as np
 import pandas as pd
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
 from cashflow.models.base import ForecastModel, ForecastOutput, generate_future_month_keys
-
-logger = logging.getLogger(__name__)
 
 
 class ETSModel(ForecastModel):

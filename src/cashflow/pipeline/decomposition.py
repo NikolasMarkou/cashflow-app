@@ -8,11 +8,9 @@ using historical mean fails to capture recent lifestyle changes
 from __future__ import annotations
 import pandas as pd
 import numpy as np
-import logging
+from loguru import logger
 from typing import Optional, Tuple
 from dataclasses import dataclass
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass

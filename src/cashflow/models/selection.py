@@ -3,7 +3,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, List
-import logging
+from loguru import logger
 
 import numpy as np
 import pandas as pd
@@ -12,8 +12,6 @@ from cashflow.models.base import ForecastModel, ForecastOutput
 from cashflow.models.ets import ETSModel
 from cashflow.models.sarima import SARIMAModel, SARIMAXModel
 from cashflow.utils import calculate_wmape
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass

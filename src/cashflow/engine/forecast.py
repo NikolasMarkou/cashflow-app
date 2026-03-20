@@ -3,7 +3,7 @@
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
-import logging
+from loguru import logger
 
 import pandas as pd
 
@@ -35,8 +35,6 @@ from cashflow.schemas.forecast import (
     DecompositionSummary,
 )
 from cashflow.utils import split_train_test, get_forecast_period, determine_confidence_level
-
-logger = logging.getLogger(__name__)
 
 
 class ForecastEngine:

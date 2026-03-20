@@ -4,11 +4,9 @@ from __future__ import annotations
 from typing import Optional
 import pandas as pd
 import numpy as np
-import logging
+from loguru import logger
 
 from cashflow.schemas.crf import ContractType, END_DATE_PRECEDENCE, AMOUNT_PRECEDENCE
-
-logger = logging.getLogger(__name__)
 
 
 def enrich_with_crf(

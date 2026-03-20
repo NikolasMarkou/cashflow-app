@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import io
-import logging
 from typing import List, Optional, Tuple
 
 import pandas as pd
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from loguru import logger
 
 from cashflow.engine import ForecastConfig, ForecastEngine
 from cashflow.pipeline import (
@@ -22,8 +22,6 @@ from cashflow.pipeline import (
 from cashflow.outliers.treatment import apply_residual_treatment
 from cashflow.schemas.forecast import ExplainabilityPayload
 from cashflow.web.schemas.response import ForecastAPIResponse
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

@@ -4,9 +4,7 @@ from __future__ import annotations
 import pandas as pd
 import numpy as np
 from typing import Optional
-import logging
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 def clean_utf(

@@ -8,9 +8,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import IsolationForest
 
-import logging
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 
 class DetectionMethod(str, Enum):

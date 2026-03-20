@@ -7,12 +7,13 @@ Supports both text and JSON output formats compatible with ELK/Splunk.
 from __future__ import annotations
 
 import json
-import logging
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
 from enum import Enum
+
+from loguru import logger
 
 
 class LogFormat(str, Enum):
@@ -59,7 +60,7 @@ class LogConfig:
             self.level = LogLevel(self.level)
 
 
-class JsonFormatter(logging.Formatter):
+class JsonFormatter:
     """JSON log formatter for structured logging.
 
     Outputs logs in JSON format with schema:
@@ -75,16 +76,15 @@ class JsonFormatter(logging.Formatter):
     """
 
     def __init__(self, correlation_fields: Optional[Dict[str, str]] = None) -> None:
-        super().__init__()
         self.correlation_fields = correlation_fields or {}
 
-    def format(self, record: logging.LogRecord) -> str:
+    def format(self, record: Any) -> str:
         """Format log record as JSON."""
         log_entry: Dict[str, Any] = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
-            "level": record.levelname,
-            "component": getattr(record, "component", record.name),
-            "message": record.getMessage(),
+            "level": record.get("level", "INFO") if isinstance(record, dict) else str(getattr(record, "level", "INFO")),
+            "component": record.get("component", "") if isinstance(record, dict) else getattr(record, "component", ""),
+            "message": record.get("message", "") if isinstance(record, dict) else str(getattr(record, "message", "")),
         }
 
         # Add correlation fields
@@ -92,29 +92,27 @@ class JsonFormatter(logging.Formatter):
             log_entry[key] = value
 
         # Add extra fields from record
-        if hasattr(record, "customer_id"):
-            log_entry["customer_id"] = record.customer_id
-        if hasattr(record, "forecast_id"):
-            log_entry["forecast_id"] = record.forecast_id
-        if hasattr(record, "account_id"):
-            log_entry["account_id"] = record.account_id
+        extra = record if isinstance(record, dict) else {}
+        for field_name in ["customer_id", "forecast_id", "account_id"]:
+            if field_name in extra:
+                log_entry[field_name] = extra[field_name]
 
         # Add metrics if present
-        if hasattr(record, "metrics") and record.metrics:
-            log_entry["metrics"] = record.metrics
+        if "metrics" in extra and extra["metrics"]:
+            log_entry["metrics"] = extra["metrics"]
 
         # Add exception info if present
-        if record.exc_info:
-            log_entry["exception"] = self.formatException(record.exc_info)
+        if "exception" in extra:
+            log_entry["exception"] = extra["exception"]
 
         # Add any additional context
-        if hasattr(record, "context") and record.context:
-            log_entry["context"] = record.context
+        if "context" in extra and extra["context"]:
+            log_entry["context"] = extra["context"]
 
         return json.dumps(log_entry, default=str)
 
 
-class TextFormatter(logging.Formatter):
+class TextFormatter:
     """Human-readable text formatter for development.
 
     Output format:
@@ -127,49 +125,51 @@ class TextFormatter(logging.Formatter):
         include_component: bool = True,
         correlation_fields: Optional[Dict[str, str]] = None,
     ) -> None:
-        super().__init__()
         self.include_timestamp = include_timestamp
         self.include_component = include_component
         self.correlation_fields = correlation_fields or {}
 
-    def format(self, record: logging.LogRecord) -> str:
+    def format(self, record: Any) -> str:
         """Format log record as human-readable text."""
         parts = []
 
         if self.include_timestamp:
             parts.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        parts.append(f"[{record.levelname}]")
+        level = record.get("level", "INFO") if isinstance(record, dict) else str(getattr(record, "level", "INFO"))
+        parts.append(f"[{level}]")
 
         if self.include_component:
-            component = getattr(record, "component", record.name)
+            component = record.get("component", "") if isinstance(record, dict) else getattr(record, "component", "")
             parts.append(f"[{component}]")
 
-        parts.append(record.getMessage())
+        message = record.get("message", "") if isinstance(record, dict) else str(getattr(record, "message", ""))
+        parts.append(message)
 
         # Add correlation info
         extra_parts = []
         for key, value in self.correlation_fields.items():
             extra_parts.append(f"{key}={value}")
 
-        if hasattr(record, "customer_id"):
-            extra_parts.append(f"customer_id={record.customer_id}")
-        if hasattr(record, "forecast_id"):
-            extra_parts.append(f"forecast_id={record.forecast_id}")
+        extra = record if isinstance(record, dict) else {}
+        if "customer_id" in extra:
+            extra_parts.append(f"customer_id={extra['customer_id']}")
+        if "forecast_id" in extra:
+            extra_parts.append(f"forecast_id={extra['forecast_id']}")
 
         if extra_parts:
             parts.append(f"({', '.join(extra_parts)})")
 
         # Add metrics summary
-        if hasattr(record, "metrics") and record.metrics:
-            metrics_str = ", ".join(f"{k}={v}" for k, v in record.metrics.items())
+        if "metrics" in extra and extra["metrics"]:
+            metrics_str = ", ".join(f"{k}={v}" for k, v in extra["metrics"].items())
             parts.append(f"[metrics: {metrics_str}]")
 
         result = " ".join(parts)
 
         # Add exception info
-        if record.exc_info:
-            result += "\n" + self.formatException(record.exc_info)
+        if "exception" in extra:
+            result += "\n" + str(extra["exception"])
 
         return result
 
@@ -199,19 +199,9 @@ class StructuredLogger:
         """
         self.name = name
         self.config = config or LogConfig()
-        self._logger = logging.getLogger(f"cashflow.{name}")
+        self._logger = logger.bind(component=name)
         self._context: Dict[str, Any] = {}
         self._metrics: Dict[str, Any] = {}
-
-        # Set level
-        level_map = {
-            LogLevel.DEBUG: logging.DEBUG,
-            LogLevel.INFO: logging.INFO,
-            LogLevel.WARNING: logging.WARNING,
-            LogLevel.ERROR: logging.ERROR,
-            LogLevel.CRITICAL: logging.CRITICAL,
-        }
-        self._logger.setLevel(level_map[self.config.level])
 
     def with_context(self, **kwargs: Any) -> "StructuredLogger":
         """Return logger with additional context fields.
@@ -243,47 +233,49 @@ class StructuredLogger:
 
     def _log(
         self,
-        level: int,
+        level: str,
         msg: str,
         exc_info: Any = None,
         **kwargs: Any,
     ) -> None:
         """Internal logging method."""
-        # Create custom record with extra fields
-        extra = {
-            "component": self.name,
-            "context": {**self._context, **kwargs},
-            "metrics": self._metrics,
-        }
+        # Build bound logger with extra fields
+        bound = self._logger.bind(
+            context={**self._context, **kwargs},
+            metrics=self._metrics,
+        )
 
         # Add common correlation fields
         for key in ["customer_id", "forecast_id", "account_id"]:
             if key in kwargs:
-                extra[key] = kwargs[key]
+                bound = bound.bind(**{key: kwargs[key]})
             elif key in self._context:
-                extra[key] = self._context[key]
+                bound = bound.bind(**{key: self._context[key]})
 
-        self._logger.log(level, msg, exc_info=exc_info, extra=extra)
+        if exc_info:
+            bound.opt(exception=exc_info).log(level, msg)
+        else:
+            bound.log(level, msg)
 
     def debug(self, msg: str, **kwargs: Any) -> None:
         """Log debug message."""
-        self._log(logging.DEBUG, msg, **kwargs)
+        self._log("DEBUG", msg, **kwargs)
 
     def info(self, msg: str, **kwargs: Any) -> None:
         """Log info message."""
-        self._log(logging.INFO, msg, **kwargs)
+        self._log("INFO", msg, **kwargs)
 
     def warning(self, msg: str, **kwargs: Any) -> None:
         """Log warning message."""
-        self._log(logging.WARNING, msg, **kwargs)
+        self._log("WARNING", msg, **kwargs)
 
     def error(self, msg: str, exc_info: Any = None, **kwargs: Any) -> None:
         """Log error message."""
-        self._log(logging.ERROR, msg, exc_info=exc_info, **kwargs)
+        self._log("ERROR", msg, exc_info=exc_info, **kwargs)
 
     def critical(self, msg: str, exc_info: Any = None, **kwargs: Any) -> None:
         """Log critical message."""
-        self._log(logging.CRITICAL, msg, exc_info=exc_info, **kwargs)
+        self._log("CRITICAL", msg, exc_info=exc_info, **kwargs)
 
     # Pipeline-specific logging methods
     def pipeline_start(self, customer_id: str, forecast_id: str) -> None:
@@ -402,34 +394,31 @@ def configure_logging(config: LogConfig) -> None:
     global _global_config
     _global_config = config
 
-    # Set up root logger
-    root_logger = logging.getLogger("cashflow")
-    root_logger.handlers.clear()
+    # Remove existing handlers
+    logger.remove()
 
-    # Create handler with appropriate formatter
-    handler = logging.StreamHandler(config.stream)
-
+    # Create formatter based on config
     if config.format == LogFormat.JSON:
         formatter = JsonFormatter(config.correlation_fields)
-    else:
-        formatter = TextFormatter(
-            include_timestamp=config.include_timestamp,
-            include_component=config.include_component,
-            correlation_fields=config.correlation_fields,
+        logger.add(
+            config.stream,
+            level=config.level.value,
+            format=lambda record: formatter.format(record) + "\n",
+            serialize=False,
         )
-
-    handler.setFormatter(formatter)
-    root_logger.addHandler(handler)
-
-    # Set level
-    level_map = {
-        LogLevel.DEBUG: logging.DEBUG,
-        LogLevel.INFO: logging.INFO,
-        LogLevel.WARNING: logging.WARNING,
-        LogLevel.ERROR: logging.ERROR,
-        LogLevel.CRITICAL: logging.CRITICAL,
-    }
-    root_logger.setLevel(level_map[config.level])
+    else:
+        fmt = ""
+        if config.include_timestamp:
+            fmt += "{time:YYYY-MM-DD HH:mm:ss} "
+        fmt += "[{level}]"
+        if config.include_component:
+            fmt += " [{extra[component]}]" if "component" in "{extra}" else " [{name}]"
+        fmt += " {message}"
+        logger.add(
+            config.stream,
+            level=config.level.value,
+            format="{time:YYYY-MM-DD HH:mm:ss} [{level}] {name}: {message}",
+        )
 
 
 def get_logger(name: str) -> StructuredLogger:

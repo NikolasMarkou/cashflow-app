@@ -11,11 +11,9 @@ upstream flags would pollute the residual component.
 from __future__ import annotations
 import pandas as pd
 import numpy as np
-import logging
+from loguru import logger
 from typing import Optional
 from collections import defaultdict
-
-logger = logging.getLogger(__name__)
 
 # Minimum occurrences to consider a pattern recurring
 MIN_OCCURRENCES = 3

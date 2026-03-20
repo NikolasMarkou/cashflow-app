@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 import json
-import logging
 import sys
 from pathlib import Path
 from typing import Optional
 
 import click
+from loguru import logger
 
 from cashflow import __version__
 from cashflow.engine import ForecastConfig, ForecastEngine
@@ -16,12 +16,11 @@ from cashflow.explainability import save_explainability_json
 
 def setup_logging(verbose: bool) -> None:
     """Configure logging based on verbosity."""
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
+    import sys
+    from loguru import logger
+    logger.remove()  # Remove default handler
+    level = "DEBUG" if verbose else "INFO"
+    logger.add(sys.stderr, level=level, format="{time:YYYY-MM-DD HH:mm:ss} [{level}] {name}: {message}")
 
 
 @click.group()
@@ -97,7 +96,6 @@ def forecast(
     8. Output explainability JSON
     """
     setup_logging(verbose)
-    logger = logging.getLogger("cashflow.cli")
 
     try:
         # Load or create configuration
@@ -174,7 +172,6 @@ def validate(utf: str, verbose: bool):
     - Duplicate transactions
     """
     setup_logging(verbose)
-    logger = logging.getLogger("cashflow.cli")
 
     from cashflow.pipeline import load_utf, clean_utf
     from cashflow.pipeline.cleaning import validate_data_quality

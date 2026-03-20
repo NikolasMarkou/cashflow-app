@@ -3,10 +3,8 @@
 from __future__ import annotations
 import pandas as pd
 import numpy as np
-import logging
+from loguru import logger
 from typing import Optional
-
-logger = logging.getLogger(__name__)
 
 
 def aggregate_monthly(

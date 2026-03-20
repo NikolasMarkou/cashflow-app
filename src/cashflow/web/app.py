@@ -2,19 +2,17 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 from pydantic import ValidationError
 
 if TYPE_CHECKING:
     from fastapi import Response
-
-logger = logging.getLogger(__name__)
 
 # Package paths
 WEB_DIR = Path(__file__).parent

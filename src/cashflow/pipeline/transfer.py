@@ -4,9 +4,7 @@ from __future__ import annotations
 from typing import Optional
 import pandas as pd
 import numpy as np
-import logging
-
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 # Default tolerance for matching transfer dates
 DEFAULT_DATE_TOLERANCE_DAYS = 2
